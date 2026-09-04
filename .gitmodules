@@ -22,3 +22,6 @@
 [submodule "third-party/cpp-steam-tools"]
 	path = third-party/cpp-steam-tools
 	url = https://github.com/streetpea/cpp-steam-tools.git
+[submodule "tracy"]
+	path = third-party/tracy
+	url = https://github.com/wolfpld/tracy.git

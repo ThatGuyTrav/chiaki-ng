@@ -14,6 +14,10 @@
 #include <errno.h>
 #include <assert.h>
 
+#ifdef TRACY_ENABLE
+#include <tracy/TracyC.h>
+#endif
+
 #ifdef _WIN32
 #include <winsock2.h>
 #define strcasecmp _stricmp
@@ -431,6 +435,9 @@ static void *session_thread_func(void *arg)
 {
 	ChiakiSession *session = (ChiakiSession *)arg;
 	chiaki_thread_set_affinity(CHIAKI_THREAD_NAME_SESSION);
+#ifdef TRACY_ENABLE
+	TracyCSetThreadName("Chiaki Session (control)");
+#endif
 
 	chiaki_mutex_lock(&session->state_mutex);
 

@@ -92,3 +92,20 @@ endif()
 if(CHIAKI_ENABLE_STEAM_SHORTCUT)
 	add_subdirectory(cpp-steam-tools)
 endif()
+
+if(CHIAKI_ENABLE_TRACY)
+	##################
+	# tracy
+	##################
+
+	# These are Tracy's own CMake option names (not chiaki's), consumed by
+	# its top-level CMakeLists.txt via a set_option()/target_compile_definitions
+	# PUBLIC on the TracyClient target -- setting them here is what actually
+	# compiles the profiler implementation into TracyClient.cpp and makes it
+	# visible to anything (chiaki-lib, chiaki) that links against TracyClient.
+	set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
+	# On-demand mode: app waits for the profiler GUI to connect instead of
+	# free-running and buffering in memory from the moment it starts.
+	set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
+	add_subdirectory(tracy EXCLUDE_FROM_ALL)
+endif()
