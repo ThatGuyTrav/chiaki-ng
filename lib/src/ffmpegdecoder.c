@@ -5,10 +5,6 @@
 #include <libavutil/pixdesc.h>
 #include <math.h>
 
-#ifdef TRACY_ENABLE
-#include <tracy/TracyC.h>
-#endif
-
 static enum AVCodecID chiaki_codec_av_codec_id(ChiakiCodec codec)
 {
 	switch(codec)
@@ -140,10 +136,6 @@ CHIAKI_EXPORT void chiaki_ffmpeg_decoder_fini(ChiakiFfmpegDecoder *decoder)
 CHIAKI_EXPORT bool chiaki_ffmpeg_decoder_video_sample_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool frame_recovered, void *user)
 {
 	ChiakiFfmpegDecoder *decoder = user;
-#ifdef TRACY_ENABLE
-	TracyCZoneN(tracy_sample_ctx, "ffmpeg_decoder_video_sample_cb", true);
-	TracyCZoneValue(tracy_sample_ctx, buf_size);
-#endif
 
 	chiaki_mutex_lock(&decoder->mutex);
 	decoder->frames_lost += frames_lost;
@@ -240,24 +232,15 @@ send_packet:
 	av_packet_free(&packet);
 	chiaki_mutex_unlock(&decoder->mutex);
 	decoder->frame_available_cb(decoder, decoder->frame_available_cb_user);
-#ifdef TRACY_ENABLE
-	TracyCZoneEnd(tracy_sample_ctx);
-#endif
 	return true;
 hell:
 	av_packet_free(&packet);
 	chiaki_mutex_unlock(&decoder->mutex);
-#ifdef TRACY_ENABLE
-	TracyCZoneEnd(tracy_sample_ctx);
-#endif
 	return false;
 }
 
 CHIAKI_EXPORT ChiakiFfmpegFrame chiaki_ffmpeg_decoder_pull_frame(ChiakiFfmpegDecoder *decoder, int32_t *frames_lost)
 {
-#ifdef TRACY_ENABLE
-	TracyCZoneN(tracy_pull_ctx, "ffmpeg_decoder_pull_frame", true);
-#endif
 	chiaki_mutex_lock(&decoder->mutex);
 	double synthetic_duration = decoder->synthetic_frame_duration_us / 1000000.0;
 	// always try to pull as much as possible and return only the very last frame
@@ -319,11 +302,6 @@ CHIAKI_EXPORT ChiakiFfmpegFrame chiaki_ffmpeg_decoder_pull_frame(ChiakiFfmpegDec
 			frame_plus_stats.duration = synthetic_duration;
 	}
 
-#ifdef TRACY_ENABLE
-	if(frame)
-		TracyCFrameMarkNamed("VideoDecode");
-	TracyCZoneEnd(tracy_pull_ctx);
-#endif
 	return frame_plus_stats;
 }
 

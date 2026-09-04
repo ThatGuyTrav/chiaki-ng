@@ -99,13 +99,6 @@ target_link_libraries(placebo-libav-impl PkgConfig::LIBPLACEBO FFMPEG::avcodec F
 target_link_libraries(chiaki PkgConfig::LIBPLACEBO placebo-libav-impl)
 
 target_link_libraries(chiaki chiaki-lib)
-if(CHIAKI_ENABLE_TRACY)
-	target_link_libraries(chiaki TracyClient)
-	target_compile_definitions(chiaki PUBLIC TRACY_ENABLE)
-	# Tracy.hpp needs C++14+; only bump the standard for this target so
-	# other platforms/backends built from the same tree are unaffected.
-	target_compile_features(chiaki PUBLIC cxx_std_17)
-endif()
 if(CHIAKI_ENABLE_CLI)
 	add_definitions(-DCHIAKI_ENABLE_CLI)
 	target_link_libraries(chiaki chiaki-cli-lib)

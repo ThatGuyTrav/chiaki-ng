@@ -9,10 +9,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#ifdef TRACY_ENABLE
-#include <tracy/TracyC.h>
-#endif
-
 int *create_matrix(unsigned int k, unsigned int m)
 {
 	return cauchy_original_coding_matrix(k, m, CHIAKI_FEC_WORDSIZE);
@@ -20,25 +16,11 @@ int *create_matrix(unsigned int k, unsigned int m)
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_fec_decode(uint8_t *frame_buf, size_t unit_size, size_t stride, unsigned int k, unsigned int m, const unsigned int *erasures, size_t erasures_count)
 {
-#ifdef TRACY_ENABLE
-	TracyCZoneN(tracy_fec_ctx, "chiaki_fec_decode", true);
-	TracyCZoneValue(tracy_fec_ctx, erasures_count);
-#endif
 	if(stride < unit_size)
-	{
-#ifdef TRACY_ENABLE
-		TracyCZoneEnd(tracy_fec_ctx);
-#endif
 		return CHIAKI_ERR_INVALID_DATA;
-	}
 	int *matrix = create_matrix(k, m);
 	if(!matrix)
-	{
-#ifdef TRACY_ENABLE
-		TracyCZoneEnd(tracy_fec_ctx);
-#endif
 		return CHIAKI_ERR_MEMORY;
-	}
 
 	ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
 
@@ -89,9 +71,6 @@ error_jerasures:
 	free(jerasures);
 error_matrix:
 	free(matrix);
-#ifdef TRACY_ENABLE
-	TracyCZoneEnd(tracy_fec_ctx);
-#endif
 	return err;
 }
 

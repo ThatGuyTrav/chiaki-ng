@@ -135,11 +135,6 @@ target_include_directories(chiaki-lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/includ
 find_package(Threads REQUIRED)
 target_link_libraries(chiaki-lib Threads::Threads)
 
-if(CHIAKI_ENABLE_TRACY)
-	target_link_libraries(chiaki-lib TracyClient)
-	target_compile_definitions(chiaki-lib PUBLIC TRACY_ENABLE)
-endif()
-
 if(CHIAKI_LIB_JSONC_EXTERNAL_PROJECT)
 	target_link_libraries(chiaki-lib json-c)
 	target_include_directories(chiaki-lib PRIVATE "${JSONC_PREFIX_INCLUDE_DIR}")
