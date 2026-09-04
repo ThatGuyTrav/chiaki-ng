@@ -5,6 +5,10 @@
 #include "chiaki/time.h"
 #include "streamsession.h"
 
+#ifdef TRACY_ENABLE
+#include <tracy/Tracy.hpp>
+#endif
+
 #include <qpa/qplatformnativeinterface.h>
 
 #define PL_LIBAV_IMPLEMENTATION 0
@@ -2969,6 +2973,9 @@ bool QmlMainWindow::configuredFrameMixerEnabledForScheduling() const
 
 void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, qint64 decoder_delivery_us)
 {
+#ifdef TRACY_ENABLE
+    ZoneScopedN("QmlMainWindow::presentFrame");
+#endif
     const qint64 present_entry_us = static_cast<qint64>(chiaki_time_now_monotonic_us());
     if (decoder_delivery_us > 0 && present_entry_us >= decoder_delivery_us) {
         const qint64 gui_handoff_us = present_entry_us - decoder_delivery_us;
@@ -6265,12 +6272,18 @@ void QmlMainWindow::handleVulkanRendererFallback(const QString &title, const QSt
 
 void QmlMainWindow::render()
 {
+#ifdef TRACY_ENABLE
+    ZoneScopedN("QmlMainWindow::render");
+#endif
     Q_ASSERT(QThread::currentThread() == render_thread);
     if (vulkan_device_lost.loadAcquire() != 0) {
         QMutexLocker locker(&render_schedule_mutex);
         render_scheduled = false;
         render_pending = false;
         render_pending_during_cycle.storeRelaxed(0);
+#ifdef TRACY_ENABLE
+        FrameMark;
+#endif
         return;
     }
     const qint64 render_entry_us = static_cast<qint64>(chiaki_time_now_monotonic_us());
@@ -6890,6 +6903,9 @@ void QmlMainWindow::render()
                     qCWarning(chiakiGui) << "Failed to submit Placebo frame!";
                 else {
                     submit_us = static_cast<qint64>(chiaki_time_now_monotonic_us());
+#ifdef TRACY_ENABLE
+                    FrameMark;
+#endif
             logLatencyStats("pl_swapchain_submit_frame", submit_us - submit_begin_us);
             CHIAKI_NOISY_DEBUG().nospace()
                 << "[latency] pl_swapchain_submit_frame_us=" << (submit_us - submit_begin_us)

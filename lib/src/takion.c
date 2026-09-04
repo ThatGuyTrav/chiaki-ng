@@ -14,6 +14,10 @@
 #include <string.h>
 #include <assert.h>
 
+#ifdef TRACY_ENABLE
+#include <tracy/TracyC.h>
+#endif
+
 #ifdef __APPLE__
 #include <TargetConditionals.h>
 #if TARGET_OS_OSX
@@ -1062,6 +1066,9 @@ static void *takion_thread_func(void *user)
 {
 	ChiakiTakion *takion = user;
 	chiaki_thread_set_affinity(CHIAKI_THREAD_NAME_TAKION);
+#ifdef TRACY_ENABLE
+	TracyCSetThreadName("Chiaki Takion (network recv)");
+#endif
 
 	takion->video_queue_initialized = false;
 	takion->video_queue_head_wait_start_us = 0;
@@ -1142,7 +1149,13 @@ static void *takion_thread_func(void *user)
 			takion_av_queues_flush_with_timeout(takion);
 			continue;
 		}
+#ifdef TRACY_ENABLE
+		TracyCZoneN(tracy_recv_ctx, "takion_recv (socket wait+read)", true);
+#endif
 		ChiakiErrorCode err = takion_recv(takion, buf, &received_size, recv_timeout_ms);
+#ifdef TRACY_ENABLE
+		TracyCZoneEnd(tracy_recv_ctx);
+#endif
 		if(err != CHIAKI_ERR_SUCCESS)
 		{
 			free(buf);
@@ -1159,7 +1172,14 @@ static void *takion_thread_func(void *user)
 			free(buf);
 			continue;
 		}
+#ifdef TRACY_ENABLE
+		TracyCZoneN(tracy_handle_ctx, "takion_handle_packet", true);
+		TracyCZoneValue(tracy_handle_ctx, received_size);
+#endif
 		takion_handle_packet(takion, resized_buf, received_size);
+#ifdef TRACY_ENABLE
+		TracyCZoneEnd(tracy_handle_ctx);
+#endif
 	}
 
 	chiaki_takion_send_buffer_fini(&takion->send_buffer);

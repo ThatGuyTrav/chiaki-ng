@@ -37,6 +37,7 @@ tri_option(CHIAKI_USE_SYSTEM_NANOPB "Use system-provided nanopb instead of submo
 tri_option(CHIAKI_USE_SYSTEM_CURL "Use system-provided curl instead of submodule. Has to be built with experimental WebSocket support!" OFF)
 option(CHIAKI_LIB_JSONC_EXTERNAL_PROJECT "Build json-c from source via FetchContent" OFF)
 option(CHIAKI_LIB_MINIUPNPC_EXTERNAL_PROJECT "Build miniupnpc from source via FetchContent" OFF)
+option(CHIAKI_ENABLE_TRACY "Enable Tracy profiler instrumentation" OFF)
 
 set(CHIAKI_VERSION_MAJOR 1)
 set(CHIAKI_VERSION_MINOR 10)
@@ -66,6 +67,25 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake;${CMAKE_CURRENT_SOURCE_DIR}/setsu/cmake")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake;${CMAKE_CURRENT_SOURCE_DIR}/steamdeck_native/cmake")
 set(CMAKE_CXX_STANDARD 11)
+
+if(CHIAKI_ENABLE_TRACY)
+	# Pulls in the Tracy client library (profiler instrumentation only,
+	# not the profiler GUI/server -- run the Tracy app separately to capture).
+	include(FetchContent)
+	FetchContent_Declare(
+		tracy
+		GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+		GIT_TAG v0.14.1
+		GIT_SHALLOW TRUE
+	)
+	# On-demand mode: app waits for the profiler GUI to connect instead of
+	# free-running and buffering in memory from the moment it starts.
+	set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
+	# Windows msys2/mingw builds need this so Tracy's process-address-space
+	# sampling doesn't rely on Windows-SDK-only symbol handling paths.
+	set(TRACY_NO_SYSTEM_TRACING OFF CACHE BOOL "" FORCE)
+	FetchContent_MakeAvailable(tracy)
+endif()
 
 if(CHIAKI_IS_SWITCH)
 	# force mbedtls as crypto lib

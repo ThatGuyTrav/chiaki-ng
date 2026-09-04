@@ -9,6 +9,10 @@
 
 #include <string.h>
 
+#ifdef TRACY_ENABLE
+#include <tracy/TracyC.h>
+#endif
+
 static void chiaki_opus_decoder_header(ChiakiAudioHeader *header, void *user);
 static void chiaki_opus_decoder_frame(uint8_t *buf, size_t buf_size, void *user);
 
@@ -91,12 +95,18 @@ static void chiaki_opus_decoder_frame(uint8_t *buf, size_t buf_size, void *user)
 		return;
 	}
 
+#ifdef TRACY_ENABLE
+	TracyCZoneN(tracy_opus_ctx, "opus_decoder_frame", true);
+#endif
 	const unsigned char *opus_buf = buf_size ? buf : NULL;
 	int r = opus_decode(decoder->opus_decoder, opus_buf, (opus_int32)buf_size, decoder->pcm_buf, decoder->audio_header.frame_size, 0);
 	if(r < 1)
 		CHIAKI_LOGE(decoder->log, "Decoding audio frame with opus failed: %s", opus_strerror(r));
 	else if(decoder->frame_cb)
 		decoder->frame_cb(decoder->pcm_buf, (size_t)r, decoder->cb_user);
+#ifdef TRACY_ENABLE
+	TracyCZoneEnd(tracy_opus_ctx);
+#endif
 }
 
 #endif
