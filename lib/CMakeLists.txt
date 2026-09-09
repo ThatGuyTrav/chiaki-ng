@@ -137,7 +137,16 @@ target_link_libraries(chiaki-lib Threads::Threads)
 
 if(CHIAKI_ENABLE_TRACY)
 	target_link_libraries(chiaki-lib TracyClient)
-	target_compile_definitions(chiaki-lib PUBLIC TRACY_ENABLE)
+	# Callstack depth for TracyAlloc/TracyCAlloc memory events (0 = none).
+	# PUBLIC so anything linking chiaki-lib, e.g. the gui target, picks up
+	# the same depth for its own TracyAlloc calls -- one source of truth,
+	# same reasoning as TRACY_ENABLE itself being set only on TracyClient.
+	target_compile_definitions(chiaki-lib PUBLIC TRACY_CALLSTACK=10)
+	# Force-included into every chiaki-lib .c file so malloc/calloc/realloc/
+	# free calls throughout the library are tracked in Tracy's Memory window
+	# without editing each call site. PRIVATE: only chiaki-lib's own sources
+	# need the substitution.
+	target_compile_options(chiaki-lib PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/src/tracy_malloc_shim.h")
 endif()
 
 if(CHIAKI_LIB_JSONC_EXTERNAL_PROJECT)

@@ -101,10 +101,14 @@ target_link_libraries(chiaki PkgConfig::LIBPLACEBO placebo-libav-impl)
 target_link_libraries(chiaki chiaki-lib)
 if(CHIAKI_ENABLE_TRACY)
 	target_link_libraries(chiaki TracyClient)
-	target_compile_definitions(chiaki PUBLIC TRACY_ENABLE)
 	# Tracy.hpp needs C++14+; only bump the standard for this target so
 	# other platforms/backends built from the same tree are unaffected.
 	target_compile_features(chiaki PUBLIC cxx_std_17)
+	# Global operator new/delete override for the Memory window -- see
+	# tracy_memory_hooks.cpp. Added via target_sources() rather than the
+	# shared SOURCE_FILES list above so it's only compiled in for this
+	# specific, opt-in build configuration.
+	target_sources(chiaki PRIVATE src/tracy_memory_hooks.cpp)
 endif()
 if(CHIAKI_ENABLE_CLI)
 	add_definitions(-DCHIAKI_ENABLE_CLI)
