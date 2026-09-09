@@ -68,25 +68,6 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake;${CMAKE_CURRENT
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake;${CMAKE_CURRENT_SOURCE_DIR}/steamdeck_native/cmake")
 set(CMAKE_CXX_STANDARD 11)
 
-if(CHIAKI_ENABLE_TRACY)
-	# Pulls in the Tracy client library (profiler instrumentation only,
-	# not the profiler GUI/server -- run the Tracy app separately to capture).
-	include(FetchContent)
-	FetchContent_Declare(
-		tracy
-		GIT_REPOSITORY https://github.com/wolfpld/tracy.git
-		GIT_TAG v0.14.1
-		GIT_SHALLOW TRUE
-	)
-	# On-demand mode: app waits for the profiler GUI to connect instead of
-	# free-running and buffering in memory from the moment it starts.
-	set(TRACY_ON_DEMAND ON CACHE BOOL "" FORCE)
-	# Windows msys2/mingw builds need this so Tracy's process-address-space
-	# sampling doesn't rely on Windows-SDK-only symbol handling paths.
-	set(TRACY_NO_SYSTEM_TRACING OFF CACHE BOOL "" FORCE)
-	FetchContent_MakeAvailable(tracy)
-endif()
-
 if(CHIAKI_IS_SWITCH)
 	# force mbedtls as crypto lib
 	set(CHIAKI_LIB_ENABLE_MBEDTLS ON)
