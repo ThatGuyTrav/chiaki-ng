@@ -1,7 +1,7 @@
 name: Build chiaki-ng msys2 x64 Windows (Tracy profiling build)
 
 # Debug/profiling build, not part of the normal release pipeline: builds
-# chiaki-ng under MSYS2/mingw64 with -DCHIAKI_ENABLE_TRACY=ON so the
+# chiaki-ng under MSYS2/ucrt64 with -DCHIAKI_ENABLE_TRACY=ON so the
 # resulting chiaki.exe streams zone/frame data to a connected Tracy
 # profiler (https://github.com/wolfpld/tracy), and also downloads the
 # matching prebuilt Tracy profiler GUI (tracy-profiler.exe) so the
@@ -40,7 +40,7 @@ jobs:
           submodules: recursive
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: mingw64
+          msystem: ucrt64
           update: true
           install: git
           pacboy: >-
@@ -94,14 +94,14 @@ jobs:
         run: |
           curl -LO https://github.com/streetpea/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip
           unzip ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip
-          cp -a "ffmpeg-n7.1-latest-win64-gpl-shared-7.1/bin/." /mingw64/bin
-          cp -a "ffmpeg-n7.1-latest-win64-gpl-shared-7.1/include/." /mingw64/include
-          cp -a "ffmpeg-n7.1-latest-win64-gpl-shared-7.1/lib/." /mingw64/lib
+          cp -a "ffmpeg-n7.1-latest-win64-gpl-shared-7.1/bin/." /ucrt64/bin
+          cp -a "ffmpeg-n7.1-latest-win64-gpl-shared-7.1/include/." /ucrt64/include
+          cp -a "ffmpeg-n7.1-latest-win64-gpl-shared-7.1/lib/." /ucrt64/lib
 
       - name: Build sdl2-compat
         run: |
-          INSTALL_PREFIX=/mingw64 scripts/build-sdl2-compat.sh .
-          cp /mingw64/lib/pkgconfig/sdl2-compat.pc /mingw64/lib/pkgconfig/sdl2.pc
+          INSTALL_PREFIX=/ucrt64 scripts/build-sdl2-compat.sh .
+          cp /ucrt64/lib/pkgconfig/sdl2-compat.pc /ucrt64/lib/pkgconfig/sdl2.pc
 
       # RelWithDebInfo rather than Release: keeps optimizations on (so timings
       # stay representative) while retaining debug info, which is useful if
@@ -119,7 +119,7 @@ jobs:
 
       - name: Deploy chiaki-ng
         run: |
-          ./scripts/deploy-windows-msys2.sh chiaki-ng-Win-Tracy build/gui/chiaki.exe "${{ github.workspace }}/build/third-party/cpp-steam-tools" /mingw64 gui/src/qml
+          ./scripts/deploy-windows-msys2.sh chiaki-ng-Win-Tracy build/gui/chiaki.exe "${{ github.workspace }}/build/third-party/cpp-steam-tools" /ucrt64 gui/src/qml
 
       - name: Download Tracy profiler GUI
         run: |
