@@ -2539,7 +2539,7 @@ void StreamSession::Event(ChiakiEvent *event)
 		case CHIAKI_EVENT_QUIT:
 			if(!connected && !holepunch_session && chiaki_quit_reason_is_error(event->quit.reason) && connect_timer.elapsed() < SESSION_RETRY_SECONDS * 1000)
 			{
-				QTimer::singleShot(SESSION_RETRY_SECONDS / 3, this, &StreamSession::Start);
+				QTimer::singleShot(SESSION_RETRY_SECONDS * 1000 / 3, this, &StreamSession::Start);
 				return;
 			}
 			connected = false;

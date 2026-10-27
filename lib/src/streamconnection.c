@@ -777,7 +777,10 @@ static void stream_connection_takion_data_expect_bang(ChiakiStreamConnection *st
 	bool r = pb_decode(&stream, tkproto_TakionMessage_fields, &msg);
 	if(!r)
 	{
-		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to decode data protobuf");
+		CHIAKI_LOGE(stream_connection->log,
+				"StreamConnection failed to decode BANG protobuf: %s (Takion %u, packet %llu bytes, %llu unread)",
+				PB_GET_ERROR(&stream), (unsigned int)stream_connection->takion.version,
+				(unsigned long long)buf_size, (unsigned long long)stream.bytes_left);
 		return;
 	}
 
