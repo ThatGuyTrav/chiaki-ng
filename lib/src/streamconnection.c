@@ -758,6 +758,15 @@ static ChiakiErrorCode stream_connection_init_crypt(ChiakiStreamConnection *stre
 	return CHIAKI_ERR_SUCCESS;
 }
 
+/* Diagnostic-only callback: record field lengths without retaining key material. */
+static bool stream_connection_bang_field_size(pb_istream_t *stream, const pb_field_t *field, void **arg)
+{
+	ChiakiLog *log = *arg;
+	CHIAKI_LOGI(log, "BANG diagnostic: field %u has %llu bytes",
+			(unsigned int)field->tag, (unsigned long long)stream->bytes_left);
+	return pb_read(stream, NULL, stream->bytes_left);
+}
+
 static void stream_connection_takion_data_expect_bang(ChiakiStreamConnection *stream_connection, uint8_t *buf, size_t buf_size)
 {
 	char ecdh_pub_key[128];
@@ -781,6 +790,24 @@ static void stream_connection_takion_data_expect_bang(ChiakiStreamConnection *st
 				"StreamConnection failed to decode BANG protobuf: %s (Takion %u, packet %llu bytes, %llu unread)",
 				PB_GET_ERROR(&stream), (unsigned int)stream_connection->takion.version,
 				(unsigned long long)buf_size, (unsigned long long)stream.bytes_left);
+		/* A second, non-authorizing decode skips key bytes to distinguish field
+		 * capacity errors from schema errors and inspect explicit acceptance. */
+		tkproto_TakionMessage diagnostic = { 0 };
+		diagnostic.bang_payload.ecdh_pub_key.funcs.decode = stream_connection_bang_field_size;
+		diagnostic.bang_payload.ecdh_pub_key.arg = stream_connection->log;
+		diagnostic.bang_payload.ecdh_sig.funcs.decode = stream_connection_bang_field_size;
+		diagnostic.bang_payload.ecdh_sig.arg = stream_connection->log;
+		pb_istream_t diagnostic_stream = pb_istream_from_buffer(buf, buf_size);
+		if(pb_decode(&diagnostic_stream, tkproto_TakionMessage_fields, &diagnostic)
+				&& diagnostic.type == tkproto_TakionMessage_PayloadType_BANG && diagnostic.has_bang_payload)
+			CHIAKI_LOGI(stream_connection->log,
+					"BANG diagnostic only: server_version=%u, version_accepted=%u, encrypted_key_accepted=%u",
+					(unsigned int)diagnostic.bang_payload.server_version,
+					(unsigned int)diagnostic.bang_payload.version_accepted,
+					(unsigned int)diagnostic.bang_payload.encrypted_key_accepted);
+		else
+			CHIAKI_LOGW(stream_connection->log, "BANG diagnostic decode: %s (message type %u)",
+					PB_GET_ERROR(&diagnostic_stream), (unsigned int)diagnostic.type);
 		return;
 	}
 
