@@ -22,7 +22,13 @@
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_init(ChiakiECDH *ecdh)
 {
+	return chiaki_ecdh_init_with_curve(ecdh, false);
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_init_with_curve(ChiakiECDH *ecdh, bool p521)
+{
 	memset(ecdh, 0, sizeof(ChiakiECDH));
+	ecdh->secret_size = p521 ? CHIAKI_ECDH_SECRET_SIZE_P521 : CHIAKI_ECDH_SECRET_SIZE;
 #ifdef CHIAKI_LIB_ENABLE_MBEDTLS
 #define CHECK(err) if((err) != 0) { \
 	chiaki_ecdh_fini(ecdh); \
@@ -45,7 +51,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_init(ChiakiECDH *ecdh)
 		(const unsigned char *) pers, sizeof pers));
 
 	// build MBEDTLS_ECP_DP_SECP256K1 group
-	CHECK(mbedtls_ecp_group_load(&ecdh->ctx.grp, MBEDTLS_ECP_DP_SECP256K1));
+	CHECK(mbedtls_ecp_group_load(&ecdh->ctx.grp, p521 ? MBEDTLS_ECP_DP_SECP521R1 : MBEDTLS_ECP_DP_SECP256K1));
 	// build key
 	CHECK(mbedtls_ecdh_gen_public(&ecdh->ctx.grp, &ecdh->ctx.d,
 		&ecdh->ctx.Q, mbedtls_ctr_drbg_random, &ecdh->drbg));
@@ -56,7 +62,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_init(ChiakiECDH *ecdh)
 
 #else
 #define CHECK(a) if(!(a)) { chiaki_ecdh_fini(ecdh); return CHIAKI_ERR_UNKNOWN; }
-	CHECK(ecdh->group = EC_GROUP_new_by_curve_name(NID_secp256k1));
+	CHECK(ecdh->group = EC_GROUP_new_by_curve_name(p521 ? NID_secp521r1 : NID_secp256k1));
 
 	CHECK(ecdh->key_local = EC_KEY_new());
 	CHECK(EC_KEY_set_group(ecdh->key_local, ecdh->group));
@@ -145,6 +151,10 @@ error_priv:
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_get_local_pub_key(ChiakiECDH *ecdh, uint8_t *key_out, size_t *key_out_size, const uint8_t *handshake_key, uint8_t *sig_out, size_t *sig_out_size)
 {
+	if(!ecdh || !key_out || !key_out_size || !handshake_key || !sig_out || !sig_out_size)
+		return CHIAKI_ERR_INVALID_DATA;
+	if(*sig_out_size < 32 || *key_out_size < 1 + 2 * ecdh->secret_size)
+		return CHIAKI_ERR_BUF_TOO_SMALL;
 #ifdef CHIAKI_LIB_ENABLE_MBEDTLS
 	mbedtls_md_context_t ctx;
 	mbedtls_md_init(&ctx);
@@ -182,8 +192,10 @@ error:
 	if(!(*key_out_size))
 		return CHIAKI_ERR_UNKNOWN;
 
-	if(!HMAC(EVP_sha256(), handshake_key, CHIAKI_HANDSHAKE_KEY_SIZE, key_out, *key_out_size, sig_out, (unsigned int *)sig_out_size))
+	unsigned int signature_size = 0;
+	if(!HMAC(EVP_sha256(), handshake_key, CHIAKI_HANDSHAKE_KEY_SIZE, key_out, *key_out_size, sig_out, &signature_size))
 		return CHIAKI_ERR_UNKNOWN;
+	*sig_out_size = signature_size;
 	return CHIAKI_ERR_SUCCESS;
 
 #endif
@@ -191,6 +203,36 @@ error:
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_derive_secret(ChiakiECDH *ecdh, uint8_t *secret_out, const uint8_t *remote_key, size_t remote_key_size, const uint8_t *handshake_key, const uint8_t *remote_sig, size_t remote_sig_size)
 {
+	return chiaki_ecdh_derive_secret_with_size(ecdh, secret_out, CHIAKI_ECDH_SECRET_SIZE,
+			remote_key, remote_key_size, handshake_key, remote_sig, remote_sig_size);
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_derive_secret_with_size(ChiakiECDH *ecdh, uint8_t *secret_out, size_t secret_out_size, const uint8_t *remote_key, size_t remote_key_size, const uint8_t *handshake_key, const uint8_t *remote_sig, size_t remote_sig_size)
+{
+	if(!ecdh || !secret_out || !remote_key || !handshake_key || !remote_sig)
+		return CHIAKI_ERR_INVALID_DATA;
+	if(ecdh->secret_size != 32 && ecdh->secret_size != 66)
+		return CHIAKI_ERR_INVALID_DATA;
+	if(secret_out_size < ecdh->secret_size)
+		return CHIAKI_ERR_BUF_TOO_SMALL;
+	if(remote_key_size != 1 + 2 * ecdh->secret_size || remote_key[0] != 4 || remote_sig_size != 32)
+		return CHIAKI_ERR_INVALID_DATA;
+	uint8_t expected_sig[32];
+#ifdef CHIAKI_LIB_ENABLE_MBEDTLS
+	if(mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), handshake_key,
+			CHIAKI_HANDSHAKE_KEY_SIZE, remote_key, remote_key_size, expected_sig) != 0)
+		return CHIAKI_ERR_UNKNOWN;
+#else
+	unsigned int expected_size = 0;
+	if(!HMAC(EVP_sha256(), handshake_key, CHIAKI_HANDSHAKE_KEY_SIZE,
+			remote_key, remote_key_size, expected_sig, &expected_size) || expected_size != 32)
+		return CHIAKI_ERR_UNKNOWN;
+#endif
+	unsigned int mismatch = 0;
+	for(size_t i = 0; i < sizeof(expected_sig); i++)
+		mismatch |= expected_sig[i] ^ remote_sig[i];
+	if(mismatch)
+		return CHIAKI_ERR_INVALID_MAC;
 	//compute DH shared key
 #ifdef CHIAKI_LIB_ENABLE_MBEDTLS
 	// https://github.com/ARMmbed/mbedtls/blob/development/programs/pkey/ecdh_curve25519.c#L151
@@ -211,7 +253,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_derive_secret(ChiakiECDH *ecdh, uint8_
 
 	// export shared secret to data buffer
 	GOTO_ERROR(mbedtls_mpi_write_binary(&ecdh->ctx.z,
-		secret_out, CHIAKI_ECDH_SECRET_SIZE));
+		secret_out, ecdh->secret_size));
 
 	return CHIAKI_ERR_SUCCESS;
 error:
@@ -228,11 +270,11 @@ error:
 		return CHIAKI_ERR_UNKNOWN;
 	}
 
-	int r = ECDH_compute_key(secret_out, CHIAKI_ECDH_SECRET_SIZE, remote_public_key, ecdh->key_local, NULL);
+	int r = ECDH_compute_key(secret_out, ecdh->secret_size, remote_public_key, ecdh->key_local, NULL);
 
 	EC_POINT_free(remote_public_key);
 
-	if(r != CHIAKI_ECDH_SECRET_SIZE)
+	if(r != (int)ecdh->secret_size)
 		return CHIAKI_ERR_UNKNOWN;
 
 	return CHIAKI_ERR_SUCCESS;

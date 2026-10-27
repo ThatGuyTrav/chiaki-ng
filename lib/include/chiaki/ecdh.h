@@ -19,9 +19,12 @@ extern "C" {
 
 
 #define CHIAKI_ECDH_SECRET_SIZE 32
+#define CHIAKI_ECDH_SECRET_SIZE_P521 66
+#define CHIAKI_ECDH_PUBLIC_KEY_SIZE_MAX 133
 
 typedef struct chiaki_ecdh_t
 {
+	size_t secret_size;
 // the following lines may lead to memory corruption
 // CHIAKI_LIB_ENABLE_MBEDTLS must be defined
 // globally (whole project)
@@ -37,6 +40,9 @@ typedef struct chiaki_ecdh_t
 } ChiakiECDH;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_init(ChiakiECDH *ecdh);
+/* The legacy initializer retains secp256k1; p521 selects the v14 curve. */
+CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_init_with_curve(ChiakiECDH *ecdh, bool p521);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_derive_secret_with_size(ChiakiECDH *ecdh, uint8_t *secret_out, size_t secret_out_size, const uint8_t *remote_key, size_t remote_key_size, const uint8_t *handshake_key, const uint8_t *remote_sig, size_t remote_sig_size);
 CHIAKI_EXPORT void chiaki_ecdh_fini(ChiakiECDH *ecdh);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_get_local_pub_key(ChiakiECDH *ecdh, uint8_t *key_out, size_t *key_out_size, const uint8_t *handshake_key, uint8_t *sig_out, size_t *sig_out_size);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ecdh_derive_secret(ChiakiECDH *ecdh, uint8_t *secret_out, const uint8_t *remote_key, size_t remote_key_size, const uint8_t *handshake_key, const uint8_t *remote_sig, size_t remote_sig_size);

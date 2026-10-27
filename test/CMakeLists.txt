@@ -13,6 +13,7 @@ set(CHIAKI_UNIT_SOURCES
 				http.c
 				rpcrypt.c
 				gkcrypt.c
+				ecdh.c
 				takion.c
 				seqnum.c
 				keystate.c

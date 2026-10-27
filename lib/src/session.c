@@ -679,7 +679,7 @@ ctrl_failed:
 		QUIT(quit_ctrl);
 	}
 
-	err = chiaki_ecdh_init(&session->ecdh);
+	err = chiaki_ecdh_init_with_curve(&session->ecdh, session->connect_info.enable_native_keyboard);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(session->log, "Session failed to initialize ECDH");

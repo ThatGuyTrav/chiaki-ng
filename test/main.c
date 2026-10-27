@@ -10,6 +10,7 @@ extern MunitTest tests_reorder_queue[];
 extern MunitTest tests_http[];
 extern MunitTest tests_rpcrypt[];
 extern MunitTest tests_gkcrypt[];
+extern MunitTest tests_ecdh[];
 extern MunitTest tests_takion[];
 extern MunitTest tests_fec[];
 extern MunitTest tests_regist[];
@@ -22,6 +23,7 @@ extern MunitTest tests_ffmpegdecoder[];
 #endif
 
 static MunitSuite suites[] = {
+	{ "/ecdh", tests_ecdh, NULL, 1, MUNIT_SUITE_OPTION_NONE },
 	{
 		"/seq_num",
 		tests_seq_num,

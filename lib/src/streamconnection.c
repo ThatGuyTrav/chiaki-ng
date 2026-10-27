@@ -738,13 +738,13 @@ static ChiakiErrorCode stream_connection_init_crypt(ChiakiStreamConnection *stre
 {
 	ChiakiSession *session = stream_connection->session;
 
-	stream_connection->gkcrypt_local = chiaki_gkcrypt_new(stream_connection->log, CHIAKI_GKCRYPT_KEY_BUF_BLOCKS_DEFAULT, 2, session->handshake_key, stream_connection->ecdh_secret);
+	stream_connection->gkcrypt_local = chiaki_gkcrypt_new_with_secret_size(stream_connection->log, CHIAKI_GKCRYPT_KEY_BUF_BLOCKS_DEFAULT, 2, session->handshake_key, stream_connection->ecdh_secret, session->ecdh.secret_size);
 	if(!stream_connection->gkcrypt_local)
 	{
 		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to initialize local GKCrypt with index 2");
 		return CHIAKI_ERR_UNKNOWN;
 	}
-	stream_connection->gkcrypt_remote = chiaki_gkcrypt_new(stream_connection->log, CHIAKI_GKCRYPT_KEY_BUF_BLOCKS_DEFAULT, 3, session->handshake_key, stream_connection->ecdh_secret);
+	stream_connection->gkcrypt_remote = chiaki_gkcrypt_new_with_secret_size(stream_connection->log, CHIAKI_GKCRYPT_KEY_BUF_BLOCKS_DEFAULT, 3, session->handshake_key, stream_connection->ecdh_secret, session->ecdh.secret_size);
 	if(!stream_connection->gkcrypt_remote)
 	{
 		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to initialize remote GKCrypt with index 3");
@@ -769,7 +769,7 @@ static bool stream_connection_bang_field_size(pb_istream_t *stream, const pb_fie
 
 static void stream_connection_takion_data_expect_bang(ChiakiStreamConnection *stream_connection, uint8_t *buf, size_t buf_size)
 {
-	char ecdh_pub_key[128];
+	char ecdh_pub_key[CHIAKI_ECDH_PUBLIC_KEY_SIZE_MAX];
 	ChiakiPBDecodeBuf ecdh_pub_key_buf = { sizeof(ecdh_pub_key), 0, (uint8_t *)ecdh_pub_key };
 	char ecdh_sig[32];
 	ChiakiPBDecodeBuf ecdh_sig_buf = { sizeof(ecdh_sig), 0, (uint8_t *)ecdh_sig };
@@ -862,15 +862,15 @@ static void stream_connection_takion_data_expect_bang(ChiakiStreamConnection *st
 	}
 
 	assert(!stream_connection->ecdh_secret);
-	stream_connection->ecdh_secret = malloc(CHIAKI_ECDH_SECRET_SIZE);
+	stream_connection->ecdh_secret = malloc(stream_connection->session->ecdh.secret_size);
 	if(!stream_connection->ecdh_secret)
 	{
 		CHIAKI_LOGE(stream_connection->log, "StreamConnection failed to alloc ECDH secret memory");
 		goto error;
 	}
 
-	ChiakiErrorCode err = chiaki_ecdh_derive_secret(&stream_connection->session->ecdh,
-			stream_connection->ecdh_secret,
+	ChiakiErrorCode err = chiaki_ecdh_derive_secret_with_size(&stream_connection->session->ecdh,
+			stream_connection->ecdh_secret, stream_connection->session->ecdh.secret_size,
 			ecdh_pub_key_buf.buf, ecdh_pub_key_buf.size,
 			stream_connection->session->handshake_key,
 			ecdh_sig_buf.buf, ecdh_sig_buf.size);
@@ -1087,7 +1087,7 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 		return err;
 	}
 
-	uint8_t ecdh_pub_key[128];
+	uint8_t ecdh_pub_key[CHIAKI_ECDH_PUBLIC_KEY_SIZE_MAX];
 	ChiakiPBBuf ecdh_pub_key_buf = { sizeof(ecdh_pub_key), ecdh_pub_key };
 	uint8_t ecdh_sig[32];
 	ChiakiPBBuf ecdh_sig_buf = { sizeof(ecdh_sig), ecdh_sig };

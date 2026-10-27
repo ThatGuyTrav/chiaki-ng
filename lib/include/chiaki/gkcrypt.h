@@ -54,6 +54,13 @@ struct chiaki_session_t;
  */
 CHIAKI_EXPORT ChiakiErrorCode chiaki_gkcrypt_init(ChiakiGKCrypt *gkcrypt, ChiakiLog *log, size_t key_buf_chunks, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret);
 
+/**
+ * Initialize using the complete ECDH secret (32 bytes for legacy sessions,
+ * 66 bytes for protocol v14). The legacy initializer above always uses 32 bytes.
+ * @param ecdh_secret_size length of ecdh_secret in bytes; must be nonzero and <= INT_MAX
+ */
+CHIAKI_EXPORT ChiakiErrorCode chiaki_gkcrypt_init_with_secret_size(ChiakiGKCrypt *gkcrypt, ChiakiLog *log, size_t key_buf_chunks, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret, size_t ecdh_secret_size);
+
 CHIAKI_EXPORT void chiaki_gkcrypt_fini(ChiakiGKCrypt *gkcrypt);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_gkcrypt_gen_key_stream(ChiakiGKCrypt *gkcrypt, uint64_t key_pos, uint8_t *buf, size_t buf_size);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_gkcrypt_get_key_stream(ChiakiGKCrypt *gkcrypt, uint64_t key_pos, uint8_t *buf, size_t buf_size);
@@ -64,18 +71,24 @@ CHIAKI_EXPORT void chiaki_gkcrypt_gen_new_gmac_key(ChiakiGKCrypt *gkcrypt, uint6
 CHIAKI_EXPORT void chiaki_gkcrypt_gen_tmp_gmac_key(ChiakiGKCrypt *gkcrypt, uint64_t index, uint8_t *key_out);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_gkcrypt_gmac(ChiakiGKCrypt *gkcrypt, uint64_t key_pos, const uint8_t *buf, size_t buf_size, uint8_t *gmac_out);
 
-static inline ChiakiGKCrypt *chiaki_gkcrypt_new(ChiakiLog *log, size_t key_buf_chunks, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret)
+static inline ChiakiGKCrypt *chiaki_gkcrypt_new_with_secret_size(ChiakiLog *log, size_t key_buf_chunks, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret, size_t ecdh_secret_size)
 {
 	ChiakiGKCrypt *gkcrypt = CHIAKI_NEW(ChiakiGKCrypt);
 	if(!gkcrypt)
 		return NULL;
-	ChiakiErrorCode err = chiaki_gkcrypt_init(gkcrypt, log, key_buf_chunks, index, handshake_key, ecdh_secret);
+	ChiakiErrorCode err = chiaki_gkcrypt_init_with_secret_size(gkcrypt, log, key_buf_chunks, index, handshake_key, ecdh_secret, ecdh_secret_size);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		free(gkcrypt);
 		return NULL;
 	}
 	return gkcrypt;
+}
+
+static inline ChiakiGKCrypt *chiaki_gkcrypt_new(ChiakiLog *log, size_t key_buf_chunks, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret)
+{
+	/* Preserve the legacy API without requiring ecdh.h in this public header. */
+	return chiaki_gkcrypt_new_with_secret_size(log, key_buf_chunks, index, handshake_key, ecdh_secret, 32);
 }
 
 static inline void chiaki_gkcrypt_free(ChiakiGKCrypt *gkcrypt)

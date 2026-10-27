@@ -5,6 +5,7 @@
 
 #include <string.h>
 #include <assert.h>
+#include <limits.h>
 
 #ifdef CHIAKI_LIB_ENABLE_MBEDTLS
 #include "mbedtls/aes.h"
@@ -21,12 +22,21 @@
 
 #define KEY_BUF_CHUNK_SIZE 0x1000
 
-static ChiakiErrorCode gkcrypt_gen_key_iv(ChiakiGKCrypt *gkcrypt, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret);
+static ChiakiErrorCode gkcrypt_gen_key_iv(ChiakiGKCrypt *gkcrypt, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret, size_t ecdh_secret_size);
 
 static void *gkcrypt_thread_func(void *user);
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_gkcrypt_init(ChiakiGKCrypt *gkcrypt, ChiakiLog *log, size_t key_buf_chunks, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret)
 {
+	return chiaki_gkcrypt_init_with_secret_size(gkcrypt, log, key_buf_chunks, index, handshake_key, ecdh_secret, 32);
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_gkcrypt_init_with_secret_size(ChiakiGKCrypt *gkcrypt, ChiakiLog *log, size_t key_buf_chunks, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret, size_t ecdh_secret_size)
+{
+	/* OpenSSL's HMAC key length is an int. Reject before allocation or casts. */
+	if(!gkcrypt || !handshake_key || !ecdh_secret || !ecdh_secret_size || ecdh_secret_size > INT_MAX)
+		return CHIAKI_ERR_INVALID_DATA;
+
 	gkcrypt->log = log;
 	gkcrypt->index = index;
 
@@ -59,7 +69,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_gkcrypt_init(ChiakiGKCrypt *gkcrypt, Chiaki
 	{
 		gkcrypt->key_buf = NULL;
 	}
-	err = gkcrypt_gen_key_iv(gkcrypt, index, handshake_key, ecdh_secret);
+	err = gkcrypt_gen_key_iv(gkcrypt, index, handshake_key, ecdh_secret, ecdh_secret_size);
 	if(err != CHIAKI_ERR_SUCCESS)
 	{
 		CHIAKI_LOGE(gkcrypt->log, "GKCrypt failed to generate key and IV");
@@ -108,7 +118,7 @@ CHIAKI_EXPORT void chiaki_gkcrypt_fini(ChiakiGKCrypt *gkcrypt)
 	}
 }
 
-static ChiakiErrorCode gkcrypt_gen_key_iv(ChiakiGKCrypt *gkcrypt, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret)
+static ChiakiErrorCode gkcrypt_gen_key_iv(ChiakiGKCrypt *gkcrypt, uint8_t index, const uint8_t *handshake_key, const uint8_t *ecdh_secret, size_t ecdh_secret_size)
 {
 	uint8_t data[3 + CHIAKI_HANDSHAKE_KEY_SIZE + 2];
 	data[0] = 1;
@@ -130,7 +140,7 @@ static ChiakiErrorCode gkcrypt_gen_key_iv(ChiakiGKCrypt *gkcrypt, uint8_t index,
 		return CHIAKI_ERR_UNKNOWN;
 	}
 
-	if(mbedtls_md_hmac_starts(&ctx, ecdh_secret, CHIAKI_ECDH_SECRET_SIZE) != 0)
+	if(mbedtls_md_hmac_starts(&ctx, ecdh_secret, ecdh_secret_size) != 0)
 	{
 		mbedtls_md_free(&ctx);
 		return CHIAKI_ERR_UNKNOWN;
@@ -151,7 +161,7 @@ static ChiakiErrorCode gkcrypt_gen_key_iv(ChiakiGKCrypt *gkcrypt, uint8_t index,
 	mbedtls_md_free(&ctx);
 
 #else
-	if(!HMAC(EVP_sha256(), ecdh_secret, CHIAKI_ECDH_SECRET_SIZE, data, sizeof(data), hmac, (unsigned int *)&hmac_size))
+	if(!HMAC(EVP_sha256(), ecdh_secret, (int)ecdh_secret_size, data, sizeof(data), hmac, (unsigned int *)&hmac_size))
 		return CHIAKI_ERR_UNKNOWN;
 
 #endif

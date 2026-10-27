@@ -5,6 +5,9 @@
 #include <chiaki/ecdh.h>
 #include <chiaki/gkcrypt.h>
 
+#include <limits.h>
+#include <string.h>
+
 static MunitResult test_ecdh(const MunitParameter params[], void *user)
 {
 	static const uint8_t handshake_key[] = { 0xfc, 0x5d, 0x4b, 0xa0, 0x3a, 0x35, 0x3a, 0xbb, 0x6a, 0x7f, 0xac, 0x79, 0x1b, 0x17, 0xbb, 0x34 };
@@ -380,7 +383,90 @@ static MunitResult test_gmac_multiple_of_key_refresh(const MunitParameter params
 }
 
 
+static MunitResult test_secret_size_v14(const MunitParameter params[], void *user)
+{
+	(void)params;
+	(void)user;
+	uint8_t handshake_key[16], secret[66];
+	for(size_t i = 0; i < sizeof(handshake_key); ++i)
+		handshake_key[i] = (uint8_t)i;
+	for(size_t i = 0; i < sizeof(secret); ++i)
+		secret[i] = (uint8_t)i;
+
+	/* Independently generated with Python hashlib/hmac:
+	 * hmac.new(bytes(range(66)), bytes([1, index, 0]) + bytes(range(16))
+	 *          + bytes([1, 0]), hashlib.sha256).digest()
+	 * The first 16 bytes are the AES key, the remaining 16 bytes the IV.
+	 */
+	static const uint8_t expected[2][32] = {
+		{ 0xe2, 0xcf, 0xd2, 0x55, 0x68, 0xa5, 0x16, 0x11,
+		  0x4f, 0x1a, 0x4c, 0x9b, 0xce, 0xa3, 0x9b, 0x1a,
+		  0xbe, 0x4d, 0x28, 0x17, 0x87, 0x7a, 0x4f, 0xf9,
+		  0xad, 0x4c, 0x41, 0x8f, 0x07, 0xd7, 0xe4, 0x9e },
+		{ 0xe8, 0x8c, 0x52, 0x16, 0xa2, 0x3a, 0xa0, 0x95,
+		  0xd3, 0x67, 0x76, 0x7c, 0x49, 0x49, 0x92, 0x45,
+		  0xf6, 0xee, 0xc3, 0xc2, 0x7d, 0x6f, 0x38, 0x2d,
+		  0xa3, 0x93, 0xe8, 0xd3, 0x8f, 0xa5, 0x57, 0x53 }
+	};
+	for(uint8_t index = 2; index <= 3; ++index)
+	{
+		ChiakiGKCrypt crypt;
+		ChiakiErrorCode err = chiaki_gkcrypt_init_with_secret_size(&crypt, NULL, 0, index, handshake_key, secret, sizeof(secret));
+		munit_assert_int(err, ==, CHIAKI_ERR_SUCCESS);
+		munit_assert_memory_equal(16, crypt.key_base, expected[index - 2]);
+		munit_assert_memory_equal(16, crypt.iv, expected[index - 2] + 16);
+		chiaki_gkcrypt_fini(&crypt);
+
+		/* A change beyond byte 32 must affect derivation, not be truncated. */
+		secret[65] ^= 0x80;
+		err = chiaki_gkcrypt_init_with_secret_size(&crypt, NULL, 0, index, handshake_key, secret, sizeof(secret));
+		munit_assert_int(err, ==, CHIAKI_ERR_SUCCESS);
+		munit_assert_int(memcmp(crypt.key_base, expected[index - 2], 16), !=, 0);
+		munit_assert_int(memcmp(crypt.iv, expected[index - 2] + 16, 16), !=, 0);
+		chiaki_gkcrypt_fini(&crypt);
+		secret[65] ^= 0x80;
+	}
+	return MUNIT_OK;
+}
+
+static MunitResult test_secret_size_legacy(const MunitParameter params[], void *user)
+{
+	(void)params;
+	(void)user;
+	uint8_t handshake_key[16], secret[32];
+	for(size_t i = 0; i < sizeof(handshake_key); ++i)
+		handshake_key[i] = (uint8_t)i;
+	for(size_t i = 0; i < sizeof(secret); ++i)
+		secret[i] = (uint8_t)i;
+	ChiakiGKCrypt legacy, sized;
+	munit_assert_int(chiaki_gkcrypt_init(&legacy, NULL, 0, 2, handshake_key, secret), ==, CHIAKI_ERR_SUCCESS);
+	munit_assert_int(chiaki_gkcrypt_init_with_secret_size(&sized, NULL, 0, 2, handshake_key, secret, sizeof(secret)), ==, CHIAKI_ERR_SUCCESS);
+	munit_assert_memory_equal(sizeof(legacy.key_base), legacy.key_base, sized.key_base);
+	munit_assert_memory_equal(sizeof(legacy.iv), legacy.iv, sized.iv);
+	munit_assert_memory_equal(sizeof(legacy.key_gmac_base), legacy.key_gmac_base, sized.key_gmac_base);
+	chiaki_gkcrypt_fini(&sized);
+	chiaki_gkcrypt_fini(&legacy);
+	return MUNIT_OK;
+}
+
+static MunitResult test_secret_size_invalid(const MunitParameter params[], void *user)
+{
+	(void)params;
+	(void)user;
+	uint8_t handshake_key[16] = {0}, secret[32] = {0};
+	ChiakiGKCrypt crypt;
+	/* Deliberately no allocation large enough for the invalid size: reject it
+	 * before attempting to read the secret or allocate a key-stream buffer. */
+	munit_assert_int(chiaki_gkcrypt_init_with_secret_size(&crypt, NULL, 0, 2, handshake_key, secret, 0), ==, CHIAKI_ERR_INVALID_DATA);
+	munit_assert_int(chiaki_gkcrypt_init_with_secret_size(&crypt, NULL, 0, 2, handshake_key, secret, (size_t)INT_MAX + 1), ==, CHIAKI_ERR_INVALID_DATA);
+	munit_assert_int(chiaki_gkcrypt_init_with_secret_size(&crypt, NULL, 0, 2, handshake_key, NULL, sizeof(secret)), ==, CHIAKI_ERR_INVALID_DATA);
+	return MUNIT_OK;
+}
+
 MunitTest tests_gkcrypt[] = {
+	{ "/secret_size_v14", test_secret_size_v14, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/secret_size_legacy", test_secret_size_legacy, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/secret_size_invalid", test_secret_size_invalid, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{
 		"/ecdh",
 		test_ecdh,
