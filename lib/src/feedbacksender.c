@@ -130,6 +130,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_keyboard_state(ChiakiFe
 		err = CHIAKI_ERR_CANCELED;
 	else if(previous->len != event.len || memcmp(previous->buf, event.buf, event.len))
 	{
+		CHIAKI_LOGV(feedback_sender->log, "Native keyboard queued: slot=%u status=%u modifiers=0x%02x locks=0x%02x keys=%u bytes=%u",
+			(unsigned)state->slot, (unsigned)state->status, (unsigned)state->modifiers,
+			(unsigned)state->locks, (unsigned)state->key_count, (unsigned)event.len);
 		chiaki_feedback_history_buffer_push(&feedback_sender->history_buf, &event);
 		feedback_sender->history_dirty = true;
 		feedback_sender_flush_history_locked(feedback_sender);
@@ -188,9 +191,13 @@ static void feedback_sender_send_state(ChiakiFeedbackSender *feedback_sender, co
 
 static void feedback_sender_send_history_packet(ChiakiFeedbackSender *feedback_sender, uint8_t event_count, const uint8_t *buf, size_t buf_size)
 {
-	//CHIAKI_LOGD(feedback_sender->log, "Feedback History:");
-	//chiaki_log_hexdump(feedback_sender->log, CHIAKI_LOG_DEBUG, buf, buf_size);
-	chiaki_takion_send_feedback_history(feedback_sender->takion, feedback_sender->history_seq_num++, event_count, (uint8_t *)buf, buf_size);
+	ChiakiSeqNum16 seq = feedback_sender->history_seq_num++;
+	ChiakiErrorCode err = chiaki_takion_send_feedback_history(feedback_sender->takion, seq, event_count, (uint8_t *)buf, buf_size);
+	if(err != CHIAKI_ERR_SUCCESS)
+		CHIAKI_LOGE(feedback_sender->log, "Feedback history send failed: %s", chiaki_error_string(err));
+	else
+		CHIAKI_LOGV(feedback_sender->log, "Feedback history sent: seq=%u events=%u bytes=%u",
+			(unsigned)seq, (unsigned)event_count, (unsigned)buf_size);
 }
 
 static void feedback_sender_flush_history_locked(ChiakiFeedbackSender *feedback_sender)
