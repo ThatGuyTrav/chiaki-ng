@@ -43,6 +43,7 @@ typedef struct chiaki_feedback_sender_t
 	ChiakiControllerState controller_state;
 	bool controller_state_changed;
 	bool history_dirty;
+	ChiakiFeedbackHistoryEvent keyboard_previous[4];
 	ChiakiMutex state_mutex;
 	ChiakiCond state_cond;
 } ChiakiFeedbackSender;
@@ -50,6 +51,7 @@ typedef struct chiaki_feedback_sender_t
 CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_init(ChiakiFeedbackSender *feedback_sender, ChiakiTakion *takion);
 CHIAKI_EXPORT void chiaki_feedback_sender_fini(ChiakiFeedbackSender *feedback_sender);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_controller_state(ChiakiFeedbackSender *feedback_sender, ChiakiControllerState *state);
+CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_keyboard_state(ChiakiFeedbackSender *feedback_sender, const ChiakiKeyboardState *state);
 
 #ifdef __cplusplus
 }

@@ -212,6 +212,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			takion->av_packet_parse = chiaki_takion_v9_av_packet_parse;
 			break;
 		case 12:
+		case 14: // Native keyboard codec; AV layout matches v12 in the inspected client.
 			takion->av_packet_parse = chiaki_takion_v12_av_packet_parse;
 			break;
 		default:

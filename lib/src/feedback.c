@@ -84,6 +84,33 @@ CHIAKI_EXPORT void chiaki_feedback_state_format_v12(uint8_t *buf, ChiakiFeedback
 	buf[0x1b] = 0x1;
 }
 
+CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_history_event_set_keyboard(ChiakiFeedbackHistoryEvent *event,
+		const ChiakiKeyboardState *state)
+{
+	if(!event || !state || state->slot > 3 || state->status > 3
+			|| state->locks > 7 || state->key_count > CHIAKI_KEYBOARD_KEYS_MAX)
+		return CHIAKI_ERR_INVALID_DATA;
+	for(size_t i = 0; i < state->key_count; i++)
+	{
+		if(!state->keys[i] || (state->keys[i] >= 0xe0 && state->keys[i] <= 0xe7))
+			return CHIAKI_ERR_INVALID_DATA;
+		for(size_t j = 0; j < i; j++)
+			if(state->keys[j] == state->keys[i])
+				return CHIAKI_ERR_INVALID_DATA;
+	}
+	event->buf[0] = state->slot;
+	event->buf[1] = state->status;
+	event->buf[2] = state->modifiers;
+	event->buf[3] = (state->locks << 5) | state->key_count;
+	for(size_t i = 0; i < state->key_count; i++)
+	{
+		event->buf[4 + 2*i] = (uint8_t)state->keys[i];
+		event->buf[5 + 2*i] = (uint8_t)(state->keys[i] >> 8);
+	}
+	event->len = 4 + 2 * state->key_count;
+	return CHIAKI_ERR_SUCCESS;
+}
+
 CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_history_event_set_button(ChiakiFeedbackHistoryEvent *event, uint64_t button, uint8_t state)
 {
 	// some buttons use a third byte for the state, some don't

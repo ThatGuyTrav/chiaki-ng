@@ -444,6 +444,8 @@ class Settings : public QObject
 
 		bool GetKeyboardEnabled() const;
 		void SetKeyboardEnabled(bool enabled);
+		bool GetNativeKeyboardEnabled() const;
+		void SetNativeKeyboardEnabled(bool enabled);
 
 		bool GetMouseTouchEnabled() const;
 		void SetMouseTouchEnabled(bool enabled);

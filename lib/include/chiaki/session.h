@@ -13,6 +13,7 @@
 #include "ecdh.h"
 #include "audio.h"
 #include "controller.h"
+#include "feedback.h"
 #include "stoppipe.h"
 #include "remote/holepunch.h"
 #include "remote/rudp.h"
@@ -81,6 +82,7 @@ typedef struct chiaki_connect_info_t
 	ChiakiConnectVideoProfile video_profile;
 	bool video_profile_auto_downgrade; // Downgrade video_profile if server does not seem to support it.
 	bool enable_keyboard;
+	bool enable_native_keyboard; // Experimental physical keyboard channel; requires Takion 14.
 	bool enable_dualsense;
 	ChiakiDisableAudioVideo audio_video_disabled;
 	bool auto_regist;
@@ -224,6 +226,7 @@ typedef struct chiaki_session_t
 		bool video_profile_auto_downgrade;
 		ChiakiDisableAudioVideo disable_audio_video;
 		bool enable_keyboard;
+		bool enable_native_keyboard;
 		bool enable_dualsense;
 		uint8_t psn_account_id[CHIAKI_PSN_ACCOUNT_ID_SIZE];
 		bool enable_idr_on_fec_failure;
@@ -278,6 +281,15 @@ typedef struct chiaki_session_t
 	ChiakiStreamConnection stream_connection;
 
 	ChiakiControllerState controller_state;
+	/* Protected by stream_connection.feedback_sender_mutex. */
+	struct {
+		bool pending;
+		bool ready;
+		bool support_cmd_valid;
+		uint32_t support_cmd;
+		uint8_t selector;
+		uint8_t counter;
+	} native_keyboard;
 } ChiakiSession;
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, ChiakiConnectInfo *connect_info, ChiakiLog *log);
@@ -290,6 +302,8 @@ CHIAKI_EXPORT void chiaki_session_send_event(ChiakiSession *session, ChiakiEvent
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_request_idr(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_controller_state(ChiakiSession *session, ChiakiControllerState *state);
+/** Returns CHIAKI_ERR_UNINITIALIZED until the native channel is negotiated. */
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_native_keyboard_state(ChiakiSession *session, const ChiakiKeyboardState *state);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_login_pin(ChiakiSession *session, const uint8_t *pin, size_t pin_size);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_stream_connection_switch_received(ChiakiSession *session);
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_goto_bed(ChiakiSession *session);

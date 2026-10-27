@@ -46,6 +46,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_init(ChiakiFeedbackSender *
 	feedback_sender->should_stop = false;
 	feedback_sender->controller_state_changed = false;
 	feedback_sender->history_dirty = false;
+	memset(feedback_sender->keyboard_previous, 0, sizeof(feedback_sender->keyboard_previous));
 	feedback_sender->history_last_size = 0;
 	feedback_sender->history_last_event_count = 0;
 	feedback_sender->history_last_sent_ms = 0;
@@ -111,6 +112,32 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_controller_state(Chiaki
 	chiaki_cond_signal(&feedback_sender->state_cond);
 
 	return CHIAKI_ERR_SUCCESS;
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_sender_set_keyboard_state(ChiakiFeedbackSender *feedback_sender, const ChiakiKeyboardState *state)
+{
+	ChiakiFeedbackHistoryEvent event;
+	ChiakiErrorCode err = chiaki_feedback_history_event_set_keyboard(&event, state);
+	if(err != CHIAKI_ERR_SUCCESS)
+		return err;
+	if(feedback_sender->takion->version < 14)
+		return CHIAKI_ERR_VERSION_MISMATCH;
+	err = chiaki_mutex_lock(&feedback_sender->state_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+		return err;
+	ChiakiFeedbackHistoryEvent *previous = &feedback_sender->keyboard_previous[state->slot];
+	if(feedback_sender->should_stop)
+		err = CHIAKI_ERR_CANCELED;
+	else if(previous->len != event.len || memcmp(previous->buf, event.buf, event.len))
+	{
+		chiaki_feedback_history_buffer_push(&feedback_sender->history_buf, &event);
+		feedback_sender->history_dirty = true;
+		feedback_sender_flush_history_locked(feedback_sender);
+		*previous = event;
+	}
+	chiaki_mutex_unlock(&feedback_sender->state_mutex);
+	chiaki_cond_signal(&feedback_sender->state_cond);
+	return err;
 }
 
 static bool controller_state_equals_for_feedback_state(ChiakiControllerState *a, ChiakiControllerState *b)
@@ -226,7 +253,8 @@ static bool state_cond_check(void *user)
 {
 	ChiakiFeedbackSender *feedback_sender = user;
 	return feedback_sender->should_stop
-		|| feedback_sender->controller_state_changed;
+		|| feedback_sender->controller_state_changed
+		|| feedback_sender->history_packet_len > 0;
 }
 
 static void *feedback_sender_thread_func(void *user)
@@ -265,7 +293,7 @@ static void *feedback_sender_thread_func(void *user)
 			err = CHIAKI_ERR_SUCCESS;
 		}
 
-		if(feedback_sender->should_stop)
+		if(feedback_sender->should_stop && feedback_sender->history_packet_len == 0)
 			break;
 
 		uint64_t now_ms = chiaki_time_now_monotonic_ms();

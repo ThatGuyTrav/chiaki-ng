@@ -997,6 +997,14 @@ bool Settings::GetKeyboardEnabled() const
 {
 	return settings.value("settings/keyboard_enabled", true).toBool();
 }
+bool Settings::GetNativeKeyboardEnabled() const
+{
+	return settings.value("settings/native_keyboard_enabled", false).toBool();
+}
+void Settings::SetNativeKeyboardEnabled(bool enabled)
+{
+	settings.setValue("settings/native_keyboard_enabled", enabled);
+}
 void Settings::SetKeyboardEnabled(bool enabled)
 {
 	settings.setValue("settings/keyboard_enabled", enabled);

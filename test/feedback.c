@@ -106,7 +106,93 @@ static MunitResult test_no_change_no_packet(const MunitParameter params[], void 
 	return MUNIT_OK;
 }
 
+static MunitResult test_keyboard_snapshots(const MunitParameter params[], void *user)
+{
+	ChiakiKeyboardState state = {0};
+	ChiakiFeedbackHistoryEvent event;
+	const uint8_t released[] = {0, 0, 0, 0};
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_SUCCESS);
+	munit_assert_size(event.len, ==, sizeof(released));
+	munit_assert_memory_equal(event.len, event.buf, released);
+	state.key_count = 1;
+	state.keys[0] = 4;
+	const uint8_t a[] = {0, 0, 0, 1, 4, 0};
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_SUCCESS);
+	munit_assert_memory_equal(sizeof(a), event.buf, a);
+	state.modifiers = 2;
+	const uint8_t shift_a[] = {0, 0, 2, 1, 4, 0};
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_SUCCESS);
+	munit_assert_memory_equal(sizeof(shift_a), event.buf, shift_a);
+	state.key_count = 0;
+	state.locks = 7;
+	const uint8_t shift_locks[] = {0, 0, 2, 0xe0};
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_SUCCESS);
+	munit_assert_size(event.len, ==, sizeof(shift_locks));
+	munit_assert_memory_equal(event.len, event.buf, shift_locks);
+	state.slot = 3;
+	state.status = 2;
+	state.key_count = 16;
+	for(size_t i = 0; i < 16; i++)
+		state.keys[i] = 0x104 + i;
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_SUCCESS);
+	munit_assert_size(event.len, ==, 36);
+	munit_assert_uint8(event.buf[0], ==, 3);
+	munit_assert_uint8(event.buf[1], ==, 2);
+	munit_assert_uint8(event.buf[3], ==, 0xf0);
+	munit_assert_uint8(event.buf[4], ==, 4);
+	munit_assert_uint8(event.buf[5], ==, 1);
+	munit_assert_uint8(event.buf[34], ==, 0x13);
+	munit_assert_uint8(event.buf[35], ==, 1);
+	state.key_count = 17;
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_INVALID_DATA);
+	state.key_count = 1;
+	state.keys[0] = 0xe0;
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_INVALID_DATA);
+	state.keys[0] = 4;
+	state.slot = 4;
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_INVALID_DATA);
+	state.slot = 0;
+	state.key_count = 2;
+	state.keys[1] = 4;
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_INVALID_DATA);
+	return MUNIT_OK;
+}
+
+static MunitResult test_keyboard_mixed_history(const MunitParameter params[], void *user)
+{
+	ChiakiFeedbackHistoryBuffer history;
+	munit_assert_int(chiaki_feedback_history_buffer_init(&history, 16), ==, CHIAKI_ERR_SUCCESS);
+	ChiakiFeedbackHistoryEvent event;
+	ChiakiKeyboardState state = {0};
+	state.key_count = 16;
+	for(size_t i = 0; i < 16; i++)
+		state.keys[i] = 4 + i;
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_SUCCESS);
+	for(size_t i = 0; i < 16; i++)
+		chiaki_feedback_history_buffer_push(&history, &event);
+	uint8_t buf[0x300];
+	size_t size = sizeof(buf);
+	munit_assert_int(chiaki_feedback_history_buffer_format(&history, buf, &size), ==, CHIAKI_ERR_SUCCESS);
+	munit_assert_size(size, ==, 576);
+	size = 575;
+	munit_assert_int(chiaki_feedback_history_buffer_format(&history, buf, &size), ==, CHIAKI_ERR_BUF_TOO_SMALL);
+	munit_assert_int(chiaki_feedback_history_event_set_button(&event, CHIAKI_CONTROLLER_BUTTON_CROSS, 0xff), ==, CHIAKI_ERR_SUCCESS);
+	chiaki_feedback_history_buffer_push(&history, &event);
+	state.key_count = 0;
+	munit_assert_int(chiaki_feedback_history_event_set_keyboard(&event, &state), ==, CHIAKI_ERR_SUCCESS);
+	chiaki_feedback_history_buffer_push(&history, &event);
+	size = sizeof(buf);
+	munit_assert_int(chiaki_feedback_history_buffer_format(&history, buf, &size), ==, CHIAKI_ERR_SUCCESS);
+	const uint8_t prefix[] = {0, 0, 0, 0, 0x80, 0x88, 0xff};
+	munit_assert_memory_equal(sizeof(prefix), buf, prefix);
+	munit_assert_size(size, ==, 4 + 3 + 14 * 36);
+	chiaki_feedback_history_buffer_fini(&history);
+	return MUNIT_OK;
+}
+
 MunitTest tests_feedback[] = {
+	{ "/keyboard_snapshots", test_keyboard_snapshots, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
+	{ "/keyboard_mixed_history", test_keyboard_mixed_history, NULL, NULL, MUNIT_TEST_OPTION_NONE, NULL },
 	{
 		"/touchpad_click_release_before_touch_up",
 		test_touchpad_click_release_before_touch_up,

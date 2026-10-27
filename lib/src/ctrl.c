@@ -55,6 +55,9 @@ typedef enum ctrl_message_type_t {
 	CTRL_MESSAGE_TYPE_MIC_CONNECT = 0x30,
 	CTRL_MESSAGE_TYPE_MIC_TOGGLE = 0x36,
 	CTRL_MESSAGE_TYPE_DISPLAY_DEVICES = 0x910,
+	CTRL_MESSAGE_TYPE_NATIVE_KEYBOARD_OPEN_RES = 0x8910,
+	CTRL_MESSAGE_TYPE_NATIVE_KEYBOARD_CLOSE_RES = 0x8911,
+	CTRL_MESSAGE_TYPE_NATIVE_KEYBOARD_UNAVAILABLE = 0x912,
 	CTRL_MESSAGE_TYPE_SWITCH_TO_STREAM_CONNECTION = 0x34
 } CtrlMessageType;
 
@@ -266,6 +269,76 @@ CHIAKI_EXPORT void chiaki_ctrl_set_login_pin(ChiakiCtrl *ctrl, const uint8_t *pi
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_goto_bed(ChiakiCtrl *ctrl)
 {
 	return chiaki_ctrl_send_message(ctrl, CTRL_MESSAGE_TYPE_GOTO_BED, NULL, 0);
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_request_native_keyboard(ChiakiCtrl *ctrl)
+{
+	ChiakiSession *session = ctrl->session;
+	ChiakiStreamConnection *stream = &session->stream_connection;
+	ChiakiErrorCode err = chiaki_mutex_lock(&stream->feedback_sender_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+		return err;
+	if(!session->connect_info.enable_native_keyboard || !stream->feedback_sender_active
+			|| session->native_keyboard.pending || session->native_keyboard.ready)
+	{
+		chiaki_mutex_unlock(&stream->feedback_sender_mutex);
+		return CHIAKI_ERR_UNINITIALIZED;
+	}
+	/* Mode-class capability thresholds in the reference client are not yet
+	 * mapped to Chiaki targets. Log the value and let the reply decide. */
+	CHIAKI_LOGI(session->log, "Native keyboard RP-SupportCmd: %s%u",
+			session->native_keyboard.support_cmd_valid ? "" : "unknown, parsed value ",
+			session->native_keyboard.support_cmd);
+	session->native_keyboard.selector = 0;
+	const uint8_t request[4] = { session->native_keyboard.counter++, 0, 0, 0 };
+	session->native_keyboard.pending = true;
+	chiaki_mutex_unlock(&stream->feedback_sender_mutex);
+	/* The CTRL thread takes notif_mutex before feedback_sender_mutex. Never
+	 * enqueue while holding the latter. */
+	err = chiaki_ctrl_send_message(ctrl, CTRL_MESSAGE_TYPE_DISPLAY_DEVICES, request, sizeof(request));
+	if(err != CHIAKI_ERR_SUCCESS)
+	{
+		chiaki_mutex_lock(&stream->feedback_sender_mutex);
+		session->native_keyboard.pending = false;
+		chiaki_mutex_unlock(&stream->feedback_sender_mutex);
+	}
+	else
+		CHIAKI_LOGI(session->log, "Requested experimental native keyboard channel (selector 0)");
+	return err;
+}
+
+static void ctrl_message_received_native_keyboard(ChiakiCtrl *ctrl, uint16_t type, const uint8_t *payload, size_t size)
+{
+	ChiakiSession *session = ctrl->session;
+	if(!session->connect_info.enable_native_keyboard)
+		return;
+	ChiakiStreamConnection *stream = &session->stream_connection;
+	chiaki_mutex_lock(&stream->feedback_sender_mutex);
+	const bool notification = type == CTRL_MESSAGE_TYPE_NATIVE_KEYBOARD_UNAVAILABLE;
+	if(size < (notification ? 2u : 4u))
+	{
+		session->native_keyboard.pending = false;
+		session->native_keyboard.ready = false;
+		CHIAKI_LOGW(session->log, "Malformed native keyboard control message %#x", type);
+	}
+	else if(payload[notification ? 0 : 1] != session->native_keyboard.selector)
+		CHIAKI_LOGW(session->log, "Ignoring native keyboard reply for unexpected selector");
+	else if(notification || type == CTRL_MESSAGE_TYPE_NATIVE_KEYBOARD_CLOSE_RES)
+	{
+		session->native_keyboard.pending = false;
+		session->native_keyboard.ready = false;
+		CHIAKI_LOGW(session->log, "Native keyboard channel unavailable (message %#x, detail %u)", type, payload[notification ? 1 : 3]);
+	}
+	else if(session->native_keyboard.pending)
+	{
+		session->native_keyboard.pending = false;
+		session->native_keyboard.ready = payload[2] == 0 && stream->feedback_sender_active;
+		if(session->native_keyboard.ready)
+			CHIAKI_LOGI(session->log, "Native keyboard channel ready (selector %u)", session->native_keyboard.selector);
+		else
+			CHIAKI_LOGW(session->log, "Native keyboard request rejected or stream stopped (status %u, detail %u)", payload[2], payload[3]);
+	}
+	chiaki_mutex_unlock(&stream->feedback_sender_mutex);
 }
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_keyboard_set_text(ChiakiCtrl *ctrl, const char *text)
@@ -810,6 +883,11 @@ static void ctrl_message_received(ChiakiCtrl *ctrl, uint16_t msg_type, uint8_t *
 
 	switch(msg_type)
 	{
+		case CTRL_MESSAGE_TYPE_NATIVE_KEYBOARD_OPEN_RES:
+		case CTRL_MESSAGE_TYPE_NATIVE_KEYBOARD_CLOSE_RES:
+		case CTRL_MESSAGE_TYPE_NATIVE_KEYBOARD_UNAVAILABLE:
+			ctrl_message_received_native_keyboard(ctrl, msg_type, payload, payload_size);
+			break;
 		case CTRL_MESSAGE_TYPE_SESSION_ID:
 			ctrl_message_received_session_id(ctrl, payload, payload_size);
 			ctrl_enable_features(ctrl);
@@ -869,8 +947,11 @@ CHIAKI_EXPORT void ctrl_enable_features(ChiakiCtrl *ctrl)
 	}
 	ctrl_message_toggle_microphone(ctrl, false);
 	ctrl_message_toggle_microphone(ctrl, false);
-	uint8_t display[0x4] = { 0x00, 0x00, 0x00, 0x00 };
-	ctrl_message_send(ctrl, CTRL_MESSAGE_TYPE_DISPLAY_DEVICES, display, 0x4);
+	if(!ctrl->session->connect_info.enable_native_keyboard)
+	{
+		uint8_t display[0x4] = { 0x00, 0x00, 0x00, 0x00 };
+		ctrl_message_send(ctrl, CTRL_MESSAGE_TYPE_DISPLAY_DEVICES, display, 0x4);
+	}
 }
 
 static void ctrl_message_received_session_id(ChiakiCtrl *ctrl, uint8_t *payload, size_t payload_size)
@@ -1116,6 +1197,8 @@ static void ctrl_message_received_keyboard_text_change(ChiakiCtrl *ctrl, uint8_t
 
 typedef struct ctrl_response_t
 {
+	bool support_cmd_valid;
+	uint32_t support_cmd;
 	bool server_type_valid;
 	uint8_t rp_server_type[0x10];
 	bool rp_prohibit;
@@ -1150,6 +1233,24 @@ static void parse_ctrl_response(CtrlResponse *response, ChiakiHttpResponse *http
 		}
 		else if(strcmp(header->key, "RP-Prohibit") == 0)
 			response->rp_prohibit = atoi(header->value) == 1;
+		else if(strcmp(header->key, "RP-SupportCmd") == 0 || strcmp(header->key, "RV-SupportCmd") == 0)
+		{
+			const char *p = header->value;
+			uint32_t value = 0;
+			bool valid = *p >= '0' && *p <= '9';
+			while(*p >= '0' && *p <= '9')
+			{
+				uint32_t digit = (uint32_t)(*p++ - '0');
+				if(value > (UINT32_MAX - digit) / 10)
+					valid = false;
+				else
+					value = value * 10 + digit;
+			}
+			while(*p == ' ' || *p == '\t')
+				p++;
+			response->support_cmd_valid = valid && !*p;
+			response->support_cmd = value;
+		}
 	}
 }
 
@@ -1420,6 +1521,10 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 		goto error;
 	}
 	chiaki_http_response_fini(&http_response);
+	chiaki_mutex_lock(&session->stream_connection.feedback_sender_mutex);
+	session->native_keyboard.support_cmd_valid = response.support_cmd_valid;
+	session->native_keyboard.support_cmd = response.support_cmd;
+	chiaki_mutex_unlock(&session->stream_connection.feedback_sender_mutex);
 
 	if(response.server_type_valid)
 	{

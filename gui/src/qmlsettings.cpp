@@ -847,6 +847,17 @@ bool QmlSettings::keyboardEnabled() const
     return settings->GetKeyboardEnabled();
 }
 
+bool QmlSettings::nativeKeyboardEnabled() const
+{
+    return settings->GetNativeKeyboardEnabled();
+}
+
+void QmlSettings::setNativeKeyboardEnabled(bool enabled)
+{
+    settings->SetNativeKeyboardEnabled(enabled);
+    emit nativeKeyboardEnabledChanged();
+}
+
 void QmlSettings::setKeyboardEnabled(bool enabled)
 {
     settings->SetKeyboardEnabled(enabled);
@@ -1983,6 +1994,7 @@ void QmlSettings::refreshAllKeys()
     emit psnAccountIdChanged();
     emit mouseTouchEnabledChanged();
     emit keyboardEnabledChanged();
+    emit nativeKeyboardEnabledChanged();
     emit dpadTouchEnabledChanged();
     emit iDROnFECFailureEnabledChanged();
     emit dpadTouchIncrementChanged();

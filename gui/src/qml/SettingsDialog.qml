@@ -2214,6 +2214,21 @@ DialogView {
                         rowSpacing: 3
                         columnSpacing: 10
 
+                        CheckBox {
+                            visible: Qt.platform.os === "windows"
+                            Layout.columnSpan: 3
+                            text: qsTr("Native keyboard passthrough (PS4, experimental)")
+                            checked: Chiaki.settings.nativeKeyboardEnabled
+                            onToggled: Chiaki.settings.nativeKeyboardEnabled = checked
+                            onActiveFocusChanged: if (activeFocus) keysFlick.ensureItemVisible(this)
+                        }
+                        Label {
+                            visible: Qt.platform.os === "windows"
+                            Layout.columnSpan: 3
+                            text: qsTr("Applies on next connection. Ctrl+Alt+F12 toggles keyboard capture.\nWhile captured, keys go to the console and local shortcuts are disabled.")
+                            wrapMode: Text.WordWrap
+                        }
+
                         Button {
                             id: resetAllKeys
                             text: "Reset All Keys"

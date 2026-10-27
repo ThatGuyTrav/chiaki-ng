@@ -40,13 +40,27 @@ CHIAKI_EXPORT void chiaki_feedback_state_format_v9(uint8_t *buf, ChiakiFeedbackS
  */
 CHIAKI_EXPORT void chiaki_feedback_state_format_v12(uint8_t *buf, ChiakiFeedbackState *state);
 
-#define CHIAKI_HISTORY_EVENT_SIZE_MAX 0x5
+#define CHIAKI_KEYBOARD_KEYS_MAX 16
+
+/* USB HID keyboard usages; modifiers E0..E7 belong in the modifier bitmask.
+ * locks: bit 0 Num Lock, bit 1 Caps Lock, bit 2 Scroll Lock.
+ * Each report replaces the entire held state of one remote slot. */
+typedef struct chiaki_keyboard_state_t
+{
+	uint8_t slot, status, modifiers, locks, key_count;
+	uint16_t keys[CHIAKI_KEYBOARD_KEYS_MAX];
+} ChiakiKeyboardState;
+
+#define CHIAKI_HISTORY_EVENT_SIZE_MAX (4 + 2 * CHIAKI_KEYBOARD_KEYS_MAX)
 
 typedef struct chiaki_feedback_history_event_t
 {
 	uint8_t buf[CHIAKI_HISTORY_EVENT_SIZE_MAX];
 	size_t len;
 } ChiakiFeedbackHistoryEvent;
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_feedback_history_event_set_keyboard(ChiakiFeedbackHistoryEvent *event,
+		const ChiakiKeyboardState *state);
 
 /**
  * @param button ChiakiControllerButton or ChiakiControllerAnalogButton

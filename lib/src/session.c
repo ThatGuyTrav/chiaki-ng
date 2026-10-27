@@ -266,6 +266,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_init(ChiakiSession *session, Chiaki
 	session->connect_info.disable_audio_video = connect_info->audio_video_disabled;
 	session->connect_info.video_profile_auto_downgrade = connect_info->video_profile_auto_downgrade;
 	session->connect_info.enable_keyboard = connect_info->enable_keyboard;
+	session->connect_info.enable_native_keyboard = connect_info->enable_native_keyboard && !connect_info->ps5;
 	session->connect_info.enable_dualsense = connect_info->enable_dualsense;
 	session->connect_info.enable_idr_on_fec_failure = connect_info->enable_idr_on_fec_failure;
 
@@ -1179,6 +1180,25 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_session_connect_microphone(ChiakiSession *s
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_keyboard_set_text(ChiakiSession *session, const char *text)
 {
 	return chiaki_ctrl_keyboard_set_text(&session->ctrl, text);
+}
+
+CHIAKI_EXPORT ChiakiErrorCode chiaki_session_set_native_keyboard_state(ChiakiSession *session, const ChiakiKeyboardState *state)
+{
+	if(!session || !state)
+		return CHIAKI_ERR_INVALID_DATA;
+	ChiakiStreamConnection *stream = &session->stream_connection;
+	ChiakiErrorCode err = chiaki_mutex_lock(&stream->feedback_sender_mutex);
+	if(err != CHIAKI_ERR_SUCCESS)
+		return err;
+	if(!session->connect_info.enable_native_keyboard || !session->native_keyboard.ready
+			|| !stream->feedback_sender_active)
+		err = CHIAKI_ERR_UNINITIALIZED;
+	else if(state->slot != session->native_keyboard.selector)
+		err = CHIAKI_ERR_INVALID_DATA;
+	else
+		err = chiaki_feedback_sender_set_keyboard_state(&stream->feedback_sender, state);
+	chiaki_mutex_unlock(&stream->feedback_sender_mutex);
+	return err;
 }
 
 CHIAKI_EXPORT ChiakiErrorCode chiaki_session_keyboard_reject(ChiakiSession *session)

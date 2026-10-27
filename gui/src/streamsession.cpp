@@ -2,6 +2,7 @@
 
 #include <streamsession.h>
 #include <settings.h>
+#include <nativekeyboard.h>
 #include <controllermanager.h>
 
 #include <chiaki/base64.h>
@@ -19,6 +20,12 @@
 #include <algorithm>
 
 #include <cstring>
+#include <algorithm>
+#include <iterator>
+
+#ifdef Q_OS_WIN
+#include <qt_windows.h>
+#endif
 
 #define SETSU_UPDATE_INTERVAL_MS 4
 #define STEAMDECK_UPDATE_INTERVAL_MS 4
@@ -304,6 +311,9 @@ StreamSessionConnectInfo::StreamSessionConnectInfo(
 	this->keyboard_controller_enabled = keyboard_controller_enabled_setting;
 	this->mouse_touch_enabled = settings->GetMouseTouchEnabled();
 	this->enable_keyboard = false;
+#ifdef Q_OS_WIN
+	this->enable_native_keyboard = settings->GetNativeKeyboardEnabled() && !chiaki_target_is_ps5(target);
+#endif
 	this->enable_dualsense = true;
 	this->enable_idr_on_fec_failure = settings->GetIDROnFECFailureEnabled();
 	this->rumble_haptics_intensity = settings->GetRumbleHapticsIntensity();
@@ -466,6 +476,10 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	audio_buffer_size = connect_info.audio_buffer_size;
 	mouse_touch_enabled = connect_info.mouse_touch_enabled;
 	keyboard_controller_enabled = connect_info.keyboard_controller_enabled;
+#ifdef Q_OS_WIN
+	native_keyboard_enabled = connect_info.enable_native_keyboard && !chiaki_target_is_ps5(connect_info.target);
+	native_keyboard_captured = native_keyboard_enabled;
+#endif
 	host = connect_info.host;
 	QByteArray host_str = connect_info.host.toUtf8();
 
@@ -475,6 +489,7 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 	chiaki_connect_info.video_profile = connect_info.video_profile;
 	chiaki_connect_info.video_profile_auto_downgrade = true;
 	chiaki_connect_info.enable_keyboard = false;
+	chiaki_connect_info.enable_native_keyboard = native_keyboard_enabled;
 	chiaki_connect_info.enable_idr_on_fec_failure = connect_info.enable_idr_on_fec_failure;
 	chiaki_connect_info.enable_dualsense = connect_info.enable_dualsense;
 	chiaki_connect_info.packet_loss_max = connect_info.packet_loss_max;
@@ -818,6 +833,7 @@ void StreamSession::Start()
 
 void StreamSession::Stop()
 {
+	ReleaseNativeKeyboard();
 	mic_active.storeRelaxed(false);
 	chiaki_session_stop(&session);
 }
@@ -929,6 +945,76 @@ void StreamSession::HandleMouseMoveEvent(QMouseEvent *event, qreal width, qreal 
 			mouse_touch_id=chiaki_controller_state_start_touch(&keyboard_state, (uint16_t)psx, (uint16_t)psy);	
 	}
 	SendFeedbackState();
+}
+
+void StreamSession::SendNativeKeyboardState()
+{
+	if(!native_keyboard_enabled)
+		return;
+	ChiakiKeyboardState state = {};
+	for(unsigned int usage = 0; usage < 256; ++usage)
+	{
+		if(!native_keyboard_keys[usage])
+			continue;
+		if(usage >= 0xe0 && usage <= 0xe7)
+			state.modifiers |= uint8_t(1u << (usage - 0xe0));
+		else if(state.key_count < sizeof(state.keys) / sizeof(state.keys[0]))
+			state.keys[state.key_count++] = uint16_t(usage);
+	}
+#ifdef Q_OS_WIN
+	state.locks = ((GetKeyState(VK_NUMLOCK) & 1) ? 1 : 0)
+		| ((GetKeyState(VK_CAPITAL) & 1) ? 2 : 0)
+		| ((GetKeyState(VK_SCROLL) & 1) ? 4 : 0);
+#endif
+	// The core owns negotiation/readiness; input before connection is harmless.
+	chiaki_session_set_native_keyboard_state(&session, &state);
+}
+
+void StreamSession::ReleaseNativeKeyboard()
+{
+	std::fill(std::begin(native_keyboard_keys), std::end(native_keyboard_keys), false);
+	native_keyboard_toggle_held = false;
+	SendNativeKeyboardState();
+}
+
+bool StreamSession::HandleNativeKeyboardEvent(QKeyEvent *event)
+{
+	if(!native_keyboard_enabled || !event->spontaneous())
+		return false;
+	const bool press = event->type() == QEvent::KeyPress;
+	// Always reserve one escape chord, even while ordinary shortcuts are captured.
+	if(event->key() == Qt::Key_F12 && (native_keyboard_toggle_held
+		|| (press && event->modifiers().testFlag(Qt::ControlModifier)
+			&& event->modifiers().testFlag(Qt::AltModifier))))
+	{
+		if(press && !event->isAutoRepeat() && !native_keyboard_toggle_held)
+		{
+			ReleaseNativeKeyboard();
+			chiaki_controller_state_set_idle(&keyboard_state);
+			SendFeedbackState();
+			native_keyboard_captured = !native_keyboard_captured;
+			CHIAKI_LOGI(GetChiakiLog(), "Native keyboard capture %s (Ctrl+Alt+F12 to toggle)", native_keyboard_captured ? "enabled" : "disabled");
+		}
+		native_keyboard_toggle_held = press;
+		return true;
+	}
+	if(!native_keyboard_captured)
+		return false;
+	if(event->isAutoRepeat() || input_block == 1)
+		return true;
+	uint32_t scan = event->nativeScanCode();
+#ifdef Q_OS_WIN
+	// Pause's E1 sequence is normalized by Windows to VK_PAUSE.
+	if(event->nativeVirtualKey() == VK_PAUSE)
+		scan = 0xe11d;
+#endif
+	const uint16_t usage = NativeKeyboardUsage(scan);
+	if(usage && usage < 256)
+	{
+		native_keyboard_keys[usage] = press;
+		SendNativeKeyboardState();
+	}
+	return true;
 }
 
 void StreamSession::HandleKeyboardEvent(QKeyEvent *event)

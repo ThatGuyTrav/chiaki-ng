@@ -7583,6 +7583,17 @@ bool QmlMainWindow::nvidiaCard() const
 bool QmlMainWindow::event(QEvent *event)
 {
     switch (event->type()) {
+    case QEvent::FocusOut:
+    case QEvent::WindowDeactivate:
+        if (session)
+            session->ReleaseNativeKeyboard();
+        break;
+    case QEvent::ShortcutOverride:
+        if (session && !grab_input && session->NativeKeyboardCaptured()) {
+            event->accept();
+            return true;
+        }
+        break;
     case QEvent::MouseMove:
     case QEvent::MouseButtonPress:
     case QEvent::MouseButtonRelease:
@@ -7610,9 +7621,11 @@ bool QmlMainWindow::event(QEvent *event)
         }
         break;
     case QEvent::KeyPress:
-        if (handleShortcut(static_cast<QKeyEvent*>(event)))
-            return true;
     case QEvent::KeyRelease:
+        if (session && !grab_input && session->HandleNativeKeyboardEvent(static_cast<QKeyEvent*>(event)))
+            return true;
+        if (event->type() == QEvent::KeyPress && handleShortcut(static_cast<QKeyEvent*>(event)))
+            return true;
         if (session && !grab_input) {
             QKeyEvent *e = static_cast<QKeyEvent*>(event);
             if (!e->spontaneous()) {

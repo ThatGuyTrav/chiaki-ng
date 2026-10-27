@@ -73,6 +73,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_init(ChiakiStreamConnecti
 	stream_connection->streaminfo_early_buf = NULL;
 	stream_connection->streaminfo_early_buf_size = 0;
 	stream_connection->player_index = 0;
+	stream_connection->feedback_sender_active = false;
 	memset(stream_connection->led_state, 0, sizeof(stream_connection->led_state));
 
 	stream_connection->haptic_intensity = Strong;
@@ -165,7 +166,8 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 
 	takion_info.enable_crypt = true;
 	takion_info.enable_dualsense = session->connect_info.enable_dualsense;
-	takion_info.protocol_version = chiaki_target_is_ps5(session->target) ? 12 : 9;
+	takion_info.protocol_version = session->connect_info.enable_native_keyboard ? 14
+		: (chiaki_target_is_ps5(session->target) ? 12 : 9);
 
 	takion_info.cb = stream_connection_takion_cb;
 	takion_info.cb_user = stream_connection;
@@ -307,6 +309,12 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 	ChiakiEvent event = { 0 };
 	event.type = CHIAKI_EVENT_CONNECTED;
 	chiaki_mutex_unlock(&stream_connection->state_mutex);
+	if(session->connect_info.enable_native_keyboard)
+	{
+		ChiakiErrorCode keyboard_err = chiaki_ctrl_request_native_keyboard(&session->ctrl);
+		if(keyboard_err != CHIAKI_ERR_SUCCESS)
+			CHIAKI_LOGW(session->log, "Native keyboard negotiation not started: %s", chiaki_error_string(keyboard_err));
+	}
 	chiaki_session_send_event(session, &event);
 	err = chiaki_mutex_lock(&stream_connection->state_mutex);
 	assert(err == CHIAKI_ERR_SUCCESS);
@@ -326,6 +334,14 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_stream_connection_run(ChiakiStreamConnectio
 
 	err = chiaki_mutex_lock(&stream_connection->feedback_sender_mutex);
 	assert(err == CHIAKI_ERR_SUCCESS);
+	if(session->native_keyboard.ready)
+	{
+		ChiakiKeyboardState released = { 0 };
+		released.slot = session->native_keyboard.selector;
+		chiaki_feedback_sender_set_keyboard_state(&stream_connection->feedback_sender, &released);
+	}
+	session->native_keyboard.ready = false;
+	session->native_keyboard.pending = false;
 	stream_connection->feedback_sender_active = false;
 	chiaki_feedback_sender_fini(&stream_connection->feedback_sender);
 	chiaki_mutex_unlock(&stream_connection->feedback_sender_mutex);

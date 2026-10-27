@@ -4,6 +4,7 @@
 #define CHIAKI_STREAMSESSION_H
 
 #include <chiaki/session.h>
+#include <chiaki/feedback.h>
 #include <chiaki/opusdecoder.h>
 #include <chiaki/opusencoder.h>
 #include <chiaki/ffmpegdecoder.h>
@@ -93,6 +94,7 @@ class SdeckHapticsWorker;
 		bool zoom;
 		bool stretch;
 		bool enable_keyboard;
+		bool enable_native_keyboard = false;
 		bool keyboard_controller_enabled;
 		bool mouse_touch_enabled;
 		bool enable_dualsense;
@@ -227,6 +229,11 @@ class StreamSession : public QObject
 		uint64_t haptics_retry_timestamp_ms = 0;
 		float PS_TOUCHPAD_MAX_X, PS_TOUCHPAD_MAX_Y;
 		ChiakiControllerState keyboard_state;
+		bool native_keyboard_enabled = false;
+		bool native_keyboard_captured = false;
+		bool native_keyboard_toggle_held = false;
+		bool native_keyboard_keys[256] = {};
+		void SendNativeKeyboardState();
 		ChiakiControllerState touch_state;
 		QMap<int, uint8_t> touch_tracker;
 		int8_t mouse_touch_id;
@@ -371,6 +378,9 @@ class StreamSession : public QObject
 		ChiakiPiDecoder *GetPiDecoder()	{ return pi_decoder; }
 #endif
 		void HandleKeyboardEvent(QKeyEvent *event);
+		bool HandleNativeKeyboardEvent(QKeyEvent *event);
+		bool NativeKeyboardCaptured() const { return native_keyboard_captured; }
+		void ReleaseNativeKeyboard();
 		void HandleTouchEvent(QTouchEvent *event, qreal width, qreal height);
 		void HandleDpadTouchEvent(ChiakiControllerState *state, bool placeholder = false);
 		void HandleMouseReleaseEvent(QMouseEvent *event);
@@ -383,7 +393,7 @@ class StreamSession : public QObject
 		void DrainMicRingBuffer();
 		void ReadMic(const QByteArray &micdata);
 
-		void BlockInput(bool block) { input_block = block ? 1 : 2; SendFeedbackState(); }
+		void BlockInput(bool block) { if(block) ReleaseNativeKeyboard(); input_block = block ? 1 : 2; SendFeedbackState(); }
 
 	signals:
 		void FfmpegFrameAvailable();
