@@ -303,7 +303,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_ctrl_request_native_keyboard(ChiakiCtrl *ct
 		chiaki_mutex_unlock(&stream->feedback_sender_mutex);
 	}
 	else
-		CHIAKI_LOGI(session->log, "Requested experimental native keyboard channel (selector 0)");
+		CHIAKI_LOGI(session->log, "Queued experimental native keyboard request (selector 0, advertised RP-SupportCmd 130000)");
 	return err;
 }
 
@@ -550,7 +550,14 @@ static void *ctrl_thread_func(void *user)
 				ChiakiCtrlMessageQueue *msg = ctrl->msg_queue;
 				ctrl->msg_queue = msg->next;
 				chiaki_mutex_unlock(&ctrl->notif_mutex);
-				ctrl_message_send(ctrl, msg->type, msg->payload, msg->payload_size);
+				ChiakiErrorCode send_err = ctrl_message_send(ctrl, msg->type, msg->payload, msg->payload_size);
+				if(msg->type == CTRL_MESSAGE_TYPE_DISPLAY_DEVICES && ctrl->session->connect_info.enable_native_keyboard)
+				{
+					if(send_err == CHIAKI_ERR_SUCCESS)
+						CHIAKI_LOGI(ctrl->session->log, "Native keyboard CTRL 0x0910 sent successfully; awaiting 0x8910");
+					else
+						CHIAKI_LOGE(ctrl->session->log, "Native keyboard CTRL 0x0910 send failed: %s", chiaki_error_string(send_err));
+				}
 				ctrl_message_queue_free(msg);
 				chiaki_mutex_lock(&ctrl->notif_mutex);
 			}
@@ -1385,6 +1392,7 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 			"RP-ClientType: 11\r\n"
 			"RP-OSType: %s\r\n"
 			"RP-ConPath: 1\r\n"
+			"%s"
 			"%s%s%s"
 			"%s%s%s"
 			"\r\n";
@@ -1402,6 +1410,7 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 	int request_len = snprintf(send_buf, sizeof(send_buf), request_fmt,
 			path, session->connect_info.hostname, port, auth_b64,
 			rp_version ? rp_version : "", did_b64, ostype_b64,
+			session->connect_info.enable_native_keyboard ? "RP-SupportCmd: 130000\r\n" : "",
 			have_bitrate ? "RP-StartBitrate: " : "",
 			have_bitrate ? bitrate_b64 : "",
 			have_bitrate ? "\r\n" : "",

@@ -967,7 +967,8 @@ void StreamSession::SendNativeKeyboardState()
 		| ((GetKeyState(VK_SCROLL) & 1) ? 4 : 0);
 #endif
 	// The core owns negotiation/readiness; input before connection is harmless.
-	chiaki_session_set_native_keyboard_state(&session, &state);
+	ChiakiErrorCode err = chiaki_session_set_native_keyboard_state(&session, &state);
+	CHIAKI_LOGV(GetChiakiLog(), "Native keyboard report submission: %s", chiaki_error_string(err));
 }
 
 void StreamSession::ReleaseNativeKeyboard()
