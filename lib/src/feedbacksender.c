@@ -25,7 +25,7 @@ static const uint64_t feedback_history_tail_ms[] = { 20, 50, 100, 200 };
 
 static void *feedback_sender_thread_func(void *user);
 static void feedback_sender_send_state(ChiakiFeedbackSender *feedback_sender, const ChiakiControllerState *state);
-static void feedback_sender_send_history_packet(ChiakiFeedbackSender *feedback_sender, uint8_t event_count, const uint8_t *buf, size_t buf_size);
+static void feedback_sender_send_history_packet(ChiakiFeedbackSender *feedback_sender, ChiakiSeqNum16 seq, uint8_t event_count, const uint8_t *buf, size_t buf_size);
 static void feedback_sender_flush_history_locked(ChiakiFeedbackSender *feedback_sender);
 static void feedback_sender_record_history(ChiakiFeedbackSender *feedback_sender, const ChiakiControllerState *state_prev, const ChiakiControllerState *state_now);
 
@@ -189,9 +189,8 @@ static void feedback_sender_send_state(ChiakiFeedbackSender *feedback_sender, co
 		CHIAKI_LOGE(feedback_sender->log, "FeedbackSender failed to send Feedback State");
 }
 
-static void feedback_sender_send_history_packet(ChiakiFeedbackSender *feedback_sender, uint8_t event_count, const uint8_t *buf, size_t buf_size)
+static void feedback_sender_send_history_packet(ChiakiFeedbackSender *feedback_sender, ChiakiSeqNum16 seq, uint8_t event_count, const uint8_t *buf, size_t buf_size)
 {
-	ChiakiSeqNum16 seq = feedback_sender->history_seq_num++;
 	ChiakiErrorCode err = chiaki_takion_send_feedback_history(feedback_sender->takion, seq, event_count, (uint8_t *)buf, buf_size);
 	if(err != CHIAKI_ERR_SUCCESS)
 		CHIAKI_LOGE(feedback_sender->log, "Feedback history send failed: %s", chiaki_error_string(err));
@@ -218,17 +217,21 @@ static void feedback_sender_flush_history_locked(ChiakiFeedbackSender *feedback_
 		return;
 	}
 	uint8_t event_count = (uint8_t)feedback_sender->history_buf.len;
+	// Each flush follows one newly recorded event, including controller events.
+	ChiakiSeqNum16 seq = feedback_sender->history_seq_num++;
 
 	if(feedback_sender->history_packet_len < CHIAKI_FEEDBACK_HISTORY_PACKET_QUEUE_SIZE)
 	{
 		feedback_sender->history_packet_sizes[packet_index] = packet_size;
 		feedback_sender->history_packet_event_counts[packet_index] = event_count;
+		feedback_sender->history_packet_seq_nums[packet_index] = seq;
 		feedback_sender->history_packet_len++;
 	}
 	else
 	{
 		feedback_sender->history_packet_sizes[feedback_sender->history_packet_begin] = packet_size;
 		feedback_sender->history_packet_event_counts[feedback_sender->history_packet_begin] = event_count;
+		feedback_sender->history_packet_seq_nums[feedback_sender->history_packet_begin] = seq;
 		memcpy(
 			feedback_sender->history_packets[feedback_sender->history_packet_begin],
 			feedback_sender->history_packets[packet_index],
@@ -310,6 +313,7 @@ static void *feedback_sender_thread_func(void *user)
 		uint8_t history_buf[CHIAKI_FEEDBACK_HISTORY_PACKET_BUF_SIZE];
 		size_t history_buf_size = 0;
 		uint8_t history_event_count = 0;
+		ChiakiSeqNum16 history_seq = 0;
 
 		if(feedback_sender->controller_state_changed)
 		{
@@ -327,6 +331,7 @@ static void *feedback_sender_thread_func(void *user)
 			size_t packet_index = feedback_sender->history_packet_begin;
 			history_buf_size = feedback_sender->history_packet_sizes[packet_index];
 			history_event_count = feedback_sender->history_packet_event_counts[packet_index];
+			history_seq = feedback_sender->history_packet_seq_nums[packet_index];
 			memcpy(history_buf, feedback_sender->history_packets[packet_index], history_buf_size);
 			feedback_sender->history_packet_begin = (feedback_sender->history_packet_begin + 1)
 				% CHIAKI_FEEDBACK_HISTORY_PACKET_QUEUE_SIZE;
@@ -336,6 +341,7 @@ static void *feedback_sender_thread_func(void *user)
 			memcpy(feedback_sender->history_last_packet, history_buf, history_buf_size);
 			feedback_sender->history_last_size = history_buf_size;
 			feedback_sender->history_last_event_count = history_event_count;
+			feedback_sender->history_last_seq_num = history_seq;
 			feedback_sender->history_last_sent_ms = now_ms;
 			feedback_sender->history_tail_resends = 0;
 		}
@@ -343,9 +349,10 @@ static void *feedback_sender_thread_func(void *user)
 			&& feedback_sender->history_tail_resends < FEEDBACK_HISTORY_TAIL_COUNT
 			&& now_ms >= feedback_sender->history_last_sent_ms + feedback_history_tail_ms[feedback_sender->history_tail_resends])
 		{
-			// nothing new since the last history packet: send it again (gets a new sequence number like any packet)
+			// Repeat the same input history with its original event sequence.
 			history_buf_size = feedback_sender->history_last_size;
 			history_event_count = feedback_sender->history_last_event_count;
+			history_seq = feedback_sender->history_last_seq_num;
 			memcpy(history_buf, feedback_sender->history_last_packet, history_buf_size);
 			feedback_sender->history_tail_resends++;
 			send_feedback_history = true;
@@ -356,7 +363,7 @@ static void *feedback_sender_thread_func(void *user)
 			feedback_sender_send_state(feedback_sender, &state_now);
 
 		if(send_feedback_history)
-			feedback_sender_send_history_packet(feedback_sender, history_event_count, history_buf, history_buf_size);
+			feedback_sender_send_history_packet(feedback_sender, history_seq, history_event_count, history_buf, history_buf_size);
 
 		err = chiaki_mutex_lock(&feedback_sender->state_mutex);
 		if(err != CHIAKI_ERR_SUCCESS)
